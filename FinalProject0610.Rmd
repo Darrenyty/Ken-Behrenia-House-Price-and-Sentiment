@@ -1,0 +1,1578 @@
+---
+title: "STAT3040 Final Project"
+author: "Tanyue Yao"
+date: "21/05/2022"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+Sys.setlocale("LC_ALL", "English")
+setwd("C:/Users/123/Desktop/STAT3040/Final Project")
+```
+
+```{r data set up, include=FALSE}
+train<-read.csv("train.csv",na.string="NA",header = TRUE,stringsAsFactors = FALSE)
+test<- read.csv("test.csv",na.string="NA",header = TRUE,stringsAsFactors = FALSE)
+attach(train)
+```
+
+```{r loading libraries, include=FALSE}
+library(ggplot2)
+library(ggpubr)
+library(psych)
+library(klaR)
+library(regclass)
+library(Amelia)
+library(dplyr)
+library(glmnet)
+library(caret)
+library(gam)
+library(splines)
+library(mgcv)
+library(neuralnet)
+library(magrittr)
+library(randomForest)
+library(gbm)
+library(stringr)
+library(e1071)
+library(xgboost)
+library(BART)
+library(missForest)
+library(naniar)
+```
+
+## Introduction
+Ken-Behrenia is a fictitious city in Australia. With the support of relevant data set, this project aims to predict the price the houses were sold and sent, the contentment score recorded after six month of the purchase. Beyond predictions, the project is also interested on the statistical and scientific significance of the predictors, as well as the uncertainty related to the predictions. 
+
+The following section firstly construct the exploratory data analysis for the training data to have some insights about the missing values, outliers, and patterns between variables. In the next two sections, this project built models for predicting price and sent respectively. In each section, more than five models are considered and compared based on their uncertainty, predictive rank on kaggle, and  their performance on 10-fold cross validation. In addition, there are discussions about the scientific and statistical significance of these covariates on predicting price and sent. Furthermore, the results of both sections are submitted on kaggle. The final score and ranking are reported. In the end, a conclusion is presented to conclude the archievement and answer all the relevant research questions.
+
+## Part ii, Explorartory Data Analysis
+Exploratory data analysis(EDA) aims to aid model fitting and find the characteristics for data. Since in the later modelling, cross-validation will be applied, at the mean time, public leader board from kaggle can perform similar function as test data set, therefore, it is unnecessary to have a separate validation and the EDA performs for the whole training data. The EDA starts from the summary table. In this dataset, sent, reno, year, and built are treated as factors since they are discrete and bounded.
+```{r summary table, include=FALSE}
+summary(train)
+train$sent<-as.factor(train$sent)
+train$cond<-as.numeric(train$cond)
+train$year<-as.factor(train$year)
+train$built<-as.factor(train$built)
+train$lat<-as.numeric(train$lat)
+train$lon<-as.numeric(train$lon)
+train$sq.m.h<-as.numeric(train$sq.m.h)
+train$sq.m.block<-as.numeric(train$sq.m.block)
+train$sq.m.pool<-as.numeric(train$sq.m.pool)
+train$reno<-as.factor(train$reno)
+train$bedrooms<-as.numeric(train$bedrooms)
+train$bathrooms<-as.numeric(train$bathrooms)
+train$environ<-as.numeric(train$environ)
+```
+
+```{r adjusted summary table, echo=FALSE}
+summary(train)
+```
+From the summary table, it provides quartiles, ranges and means for numeric variables and distribution for categorical ones. Additionally, the table demonstrates that there are missing values for almost all covariates except id, price and sent. Since making imputation for the missing values now may distort the our understanding of data's pattern in the later exploration, therefore, for the following EDA, the missing values will be temporarily removed, and it will be appropriately adjusted at the end of EDA.
+```{r IQR, include=FALSE}
+quantile(train$price,na.rm = TRUE)[2]-1.5*IQR(train$price,na.rm = TRUE); quantile(train$price,na.rm = TRUE)[4]+1.5*IQR(train$price,na.rm = TRUE)
+quantile(train$cond,na.rm = TRUE)[2]-1.5*IQR(train$cond,na.rm = TRUE); quantile(train$cond,na.rm = TRUE)[4]+1.5*IQR(train$cond,na.rm = TRUE)
+quantile(train$lat,na.rm = TRUE)[2]-1.5*IQR(train$lat,na.rm = TRUE); quantile(train$lat,na.rm = TRUE)[4]+1.5*IQR(train$lat,na.rm = TRUE)
+quantile(train$lon,na.rm = TRUE)[2]-1.5*IQR(train$lon,na.rm = TRUE); quantile(train$lon,na.rm = TRUE)[4]+1.5*IQR(train$lon,na.rm = TRUE)
+quantile(train$sq.m.h,na.rm = TRUE)[2]-1.5*IQR(train$sq.m.h,na.rm = TRUE); quantile(train$sq.m.h,na.rm = TRUE)[4]+1.5*IQR(train$sq.m.h,na.rm = TRUE)
+quantile(train$sq.m.block,na.rm = TRUE)[2]-1.5*IQR(train$sq.m.block,na.rm = TRUE); quantile(train$sq.m.block,na.rm = TRUE)[4]+1.5*IQR(train$sq.m.block,na.rm = TRUE)
+quantile(train$sq.m.pool,na.rm = TRUE)[2]-1.5*IQR(train$sq.m.pool,na.rm = TRUE); quantile(train$sq.m.pool,na.rm = TRUE)[4]+1.5*IQR(train$sq.m.pool,na.rm = TRUE)
+quantile(train$bedrooms,na.rm = TRUE)[2]-1.5*IQR(train$bedrooms,na.rm = TRUE); quantile(train$bedrooms,na.rm = TRUE)[4]+1.5*IQR(train$bedrooms,na.rm = TRUE)
+quantile(train$bathrooms,na.rm = TRUE)[2]-1.5*IQR(train$bathrooms,na.rm = TRUE); quantile(train$bathrooms,na.rm = TRUE)[4]+1.5*IQR(train$bathrooms,na.rm = TRUE)
+quantile(train$environ,na.rm = TRUE)[2]-1.5*IQR(train$environ,na.rm = TRUE); quantile(train$environ,na.rm = TRUE)[4]+1.5*IQR(train$environ,na.rm = TRUE)
+```
+Based on the IQR rule, there is a lower bound (1st quartile - 1.5IQR) and higher bound (3rd quartile + 1.5IQR)to identify outliers that are not in this range. By calculation, it is found that, variables price, cond, lat, lon, sq.m.h, sq.m.bolck, sq.m.pool, bedrooms, bathrooms, and environ, have outliers that are outside the boundaries. Some of outliers are possible to exist while other are not. To clearly visualize the outliers and identify the unusual points, boxplots are applied since they can appropriately show the distributions of these variables.
+```{r boxplots, echo=FALSE}
+par(mfrow=c(2,3))
+boxplot(train$price,xlab="price",main="price")
+boxplot(train$cond,xlab="cond",main="cond")
+boxplot(train$lat,xlab="lat",main="lat")
+boxplot(train$lon,xlab="lon",main="lon")
+boxplot(train$sq.m.h,xlab="sq.m.h",main="sq.m.h")
+boxplot(train$sq.m.block,xlab="sq.m.block",main="sq.m.block")
+boxplot(train$sq.m.pool,xlab="sq.m.pool",main="sq.m.pool")
+boxplot(train$bedrooms,xlab="bedrooms",main="bedrooms")
+boxplot(train$bathrooms,xlab="bathrooms",main="bathrooms")
+boxplot(train$environ,xlab="environ",main="environ")
+```
+From the boxplots, we can clearly view how many outliers and how far they are from the boundaries. Considering the variables' nature and combining with some research, most outliers are explainable in the reality, thus they are not identified as unusual points. However, some outliers are even much far from the boundaries than other outliers, which need further investigation. For example, even though the maximum values of living space size and pool size are proved to be possible in reality after researching, there is a house whose lot size is more than 200000 square meters, which is very rare. Therefore, this data is identified as unusual data. Since we cannot prove it is due to mistakes rather than a real observation, the unusual point is kept. 
+Additionally, from boxplots, we can find several variables are highly skewed and has several extreme values, therefore, transformations are considered. Especially, for sq.m.pool, sq.m.h, and sq.m.block, these variables are highly right skewed with several very large maximums. To make the data easier to view, increase normality and reduce the effect of extreme values to modelling, log transformations are applied to these three covariates. Through histograms and boxplots, it is obvious that log transformation performs well to "draws in" large values, makes the data easier to look, and somehow normalizes the variance. For sq.m.pool, since there are 0 values, therefore, the log(1+x) transformation is applied to avoid the introduction of NAs.
+```{r transformation check, include=FALSE}
+hist(train$sq.m.pool)
+hist(log(1+train$sq.m.pool))
+hist(train$sq.m.h)
+hist(log(train$sq.m.h))
+hist(train$sq.m.block)
+hist(log(train$sq.m.block))
+```
+
+```{r bivariate graphs, echo=FALSE}
+p1<-ggplot(na.omit(train), aes(x = cond, fill = sent)) +geom_density(alpha = 0.4) +labs(title = "cond by sent")
+p2<-ggplot(na.omit(train), aes(x = year, fill = sent)) +geom_bar(alpha = 0.4) +labs(title = "year by sent")
+p3<-ggplot(na.omit(train), aes(x = built, fill = sent)) +geom_bar(alpha = 0.4) +labs(title = "built by sent")
+p4<-ggplot(na.omit(train), aes(x = lat, fill = sent)) +geom_density(alpha = 0.4) +labs(title = "lat by sent")
+p5<-ggplot(na.omit(train), aes(x = lon, fill = sent)) +geom_density(alpha = 0.4) +labs(title = "lon by sent")
+p6<-ggplot(na.omit(train), aes(x = log(sq.m.h), fill = sent)) +geom_density(alpha = 0.4) +labs(title = "sq.m.h by sent")
+p7<-ggplot(na.omit(train), aes(x = log(sq.m.block), fill = sent)) +geom_density(alpha = 0.4) +labs(title = "sq.m.block by sent")
+p8<-ggplot(na.omit(train), aes(x = log(1+sq.m.pool), fill = sent)) +geom_density(alpha = 0.4) +labs(title = "sq.m.pool by sent")
+p9<-ggplot(na.omit(train), aes(x = bedrooms, fill = sent)) +geom_density(alpha = 0.4) +labs(title = "bedrooms by sent")
+p10<-ggplot(na.omit(train), aes(x = bathrooms, fill = sent)) +geom_density(alpha = 0.4) +labs(title = "bathrooms by sent")
+p11<-ggplot(na.omit(train), aes(x = environ, fill = sent)) +geom_density(alpha = 0.4) +labs(title = "environ by sent")
+p12<-ggplot(na.omit(train), aes(x = reno, fill = sent)) + geom_bar(position = "stack")+labs(title = "reno by sent")
+ggarrange(p1,p2,p3,p4,p5,p6,ncol = 2, nrow = 3)
+ggarrange(p7,p8,p9,p10,p11,p12,ncol = 2, nrow = 3)
+```
+To explore the relationship between between response variables and covariates, the scatter plots between price and covariates, the density plots by price, and the barplots by sent are constructed. From the data and plots by sent, we can find that buys are more likely satisfied to houses which are with higher cond, sold at a ealier year, built at the earlier decades, located within certain range of latitude and longitude, with larger living space, with larger lot size, with larger pool size, with more bedrooms and bathrooms, with higher score of density, and are renovated before sales. 
+```{r bivariate numeric, warning=FALSE,echo=FALSE}
+pp1<-ggplot(na.omit(train), aes(x = cond, y = price))+geom_point(color= "steelblue") +geom_smooth(color = "tomato")
+pp2<-ggplot(na.omit(train), aes(x = year, y = price))+geom_point(color= "steelblue") +geom_smooth(color = "tomato")
+pp3<-ggplot(na.omit(train), aes(x = built, y = price))+geom_point(color= "steelblue") +geom_smooth(color = "tomato")
+pp4<-ggplot(na.omit(train), aes(x = lat, y = price))+geom_point(color= "steelblue") +geom_smooth(color = "tomato")
+pp5<-ggplot(na.omit(train), aes(x = lon, y = price))+geom_point(color= "steelblue") +geom_smooth(color = "tomato")
+pp6<-ggplot(na.omit(train), aes(x = log(sq.m.h), y = price))+geom_point(color= "steelblue") +geom_smooth(color = "tomato")
+pp7<-ggplot(na.omit(train), aes(x = log(sq.m.block), y = price))+geom_point(color= "steelblue") +geom_smooth(color = "tomato")
+pp8<-ggplot(na.omit(train), aes(x = log(1+sq.m.pool), y = price))+geom_point(color= "steelblue") +geom_smooth(color = "tomato")
+pp9<-ggplot(na.omit(train), aes(x = bedrooms, y = price))+geom_point(color= "steelblue") +geom_smooth(color = "tomato")
+pp10<-ggplot(na.omit(train), aes(x = bathrooms, y = price))+geom_point(color= "steelblue") +geom_smooth(color = "tomato")
+pp11<-ggplot(na.omit(train), aes(x = environ, y = price))+geom_point(color= "steelblue") +geom_smooth(color = "tomato")
+pp12<-ggplot(na.omit(train), aes(x = reno, y = price))+geom_point(color= "steelblue") +geom_smooth(color = "tomato")
+ggarrange(pp1,pp2,pp3,pp4,pp5,pp6,ncol = 2, nrow = 3)
+ggarrange(pp7,pp8,pp9,pp10,pp11,pp12,ncol = 2, nrow = 3)
+```
+Regarding to the response price,  we can find some scatter plots showing patterns between price and covariates. It is clear that houses are sold at higher prices if they are sold in a lower year, with larger lot size, with larger pool size, with more bedrooms and bathrooms. Additionally, houses that are located within certain range of latitudes and longitudes are sold at a higher price, and houses with medium size of living space are sold at a lower price. Other covariates does not show clear patterns with prices.
+```{r correlation check}
+train$log.pool<-log(1+train$sq.m.pool)
+train$log.block<-log(train$sq.m.block)
+train$log.h<-log(train$sq.m.h)
+```
+```{r correlation plort, eval=FALSE}
+corPlot(train[,-c(1,3,5,6,9,10,11,12)], cex = 0.6)
+```
+To explore the correlation between variables, the correlation plot is constructed. Ligher colors mean lower correlation while the darker colors mean higher correlation. According to the graph, we notice that there are high correlation between lon and lat, and high correlation between log transformation of sq.m.h (log.h) and bathrooms. To get some insights if there is multicollinearity, variance inflation factor (VIF), which acts as an index of severity of multicollinearity in an ordinary least squares analysis, are calculated for linear regressions between price, sent and predictors are constructed. The results imply that there are not significant issues about multicollinearity, these variables are kept, nevertheless, we still need very careful when using statistical inference about these variables.
+```{r cor numeric, include=FALSE}
+## cor(na.omit(train[,-c(1,3,12)]))
+VIF(lm(price~., data = train[,-c(9,10,11)]))
+VIF(lm(as.numeric(sent)~., data = train[,-c(9,10,11)]))
+```
+
+```{r missing values, include=FALSE}
+train.mod<-train[,-c(9,10,11)]
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]}
+train.mod<-train.mod %>% mutate_if(is.numeric, funs(replace(.,is.na(.), median(., na.rm = TRUE)))) %>%
+  mutate_if(is.factor, funs(replace(.,is.na(.), Mode(na.omit(.)))))
+summary(train.mod)
+```
+
+```{r test missing values, include=FALSE}
+test.mod<-test[,-c(7,8,9)]
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]}
+test.mod<-test.mod %>% mutate_if(is.numeric, funs(replace(.,is.na(.), median(., na.rm = TRUE)))) %>%
+  mutate_if(is.factor, funs(replace(.,is.na(.), Mode(na.omit(.)))))
+summary(test.mod)
+```
+
+```{r multiple imputation, eval=FALSE}
+set.seed(1)
+mult.imput<-amelia(train[,-c(1,2,3,9,10,11)],bounds = rbind(c(2,1,12),c(3,1,10),c(10,0,Inf)),noms = c(2,3,6,7,8,9),m=3)
+av.mult<-matrix(, nrow = nrow(train), ncol = ncol(train)-7)
+for(j in 1:(ncol(train)-7)){
+  if(j %in% c(2,3,6,7,8,9)==FALSE){
+    for (i in 1:nrow(train)) {
+      av.mult[i,j]<-1/2*(as.data.frame(mult.imput$imputations[1])[i,j]+as.data.frame(mult.imput$imputations[2])[i,j]+as.data.frame(mult.imput$imputations[3])[i,j])
+    }
+  }else{
+    av.mult[i,j]<-Mode(c(as.data.frame(mult.imput$imputations[1])[i,j],as.data.frame(mult.imput$imputations[2])[i,j],as.data.frame(mult.imput$imputations[3])[i,j]))
+  }
+}
+train.mult<-cbind(train[,c(1,2,3)],as.data.frame(mult.imput$imputations[1]))
+colnames(train.mult)<-c("id","price","sent","cond","year","built","lat","lon","reno","bedrooms","bathrooms","environ","log.pool","log.block","log.h")
+summary(train.mult)
+```
+
+```{r manipulation of test data, eval=FALSE}
+test$cond<-as.numeric(test$cond)
+test$year<-as.factor(test$year)
+test$built<-as.factor(test$built)
+test$lat<-as.numeric(test$lat)
+test$lon<-as.numeric(test$lon)
+test$sq.m.h<-as.numeric(test$sq.m.h)
+test$sq.m.block<-as.numeric(test$sq.m.block)
+test$sq.m.pool<-as.numeric(test$sq.m.pool)
+test$reno<-as.factor(test$reno)
+test$bedrooms<-as.numeric(test$bedrooms)
+test$bathrooms<-as.numeric(test$bathrooms)
+test$environ<-as.numeric(test$environ)
+test$log.pool<-log(1+test$sq.m.pool)
+test$log.block<-log(test$sq.m.block)
+test$log.h<-log(test$sq.m.h)
+set.seed(1)
+mult.imput<-amelia(test[,-c(1,7,8,9)],m=3,bounds = rbind(c(2,1,12),c(3,1,10),c(10,0,Inf)),noms = c(2,3,6,7,8,9))
+av.mult.test<-matrix(, nrow = nrow(test), ncol = ncol(test)-5)
+for(j in 1:(ncol(test)-5)){
+  if(j %in% c(2,3,6,7,8,9)==FALSE){
+  for (i in 1:nrow(test)) {
+    av.mult.test[i,j]<-1/3*(as.data.frame(mult.imput$imputations[1])[i,j]+as.data.frame(mult.imput$imputations[2])[i,j]+as.data.frame(mult.imput$imputations[3])[i,j])
+  }
+  }else{
+   av.mult.test[i,j]<-Mode(c(as.data.frame(mult.imput$imputations[1])[i,j],as.data.frame(mult.imput$imputations[2])[i,j],as.data.frame(mult.imput$imputations[3])[i,j]))
+ }
+}
+test.mult<-cbind(test[,c(1)],as.data.frame(mult.imput$imputations[3]))
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]}
+test.mult<-test.mult%>%mutate_if(is.factor, funs(replace(.,is.na(.), Mode(na.omit(.)))))
+colnames(test.mult)<-c("id","cond","year","built","lat","lon","reno","bedrooms","bathrooms","environ","log.pool","log.block","log.h")
+summary(test.mult)
+```
+
+```{r missing data rndom forest,include=FALSE,eval=FALSE}
+train.rfm<-train[,-c(9,10,11)]
+train.rfm<-missForest(train.rfm,maxiter = 1,ntree = 10,verbose=TRUE)
+summary(train.rfm$ximp)
+train.rfm<-train.rfm$ximp
+summary(train.rfm)
+train.rfm.colab<-read.csv("train.rfm 20.csv",na.string="NA",header = TRUE,stringsAsFactors = TRUE)
+
+train.rfm.colab$sent<-as.factor(train.rfm.colab$sent)
+train.rfm.colab$year<-as.factor(train.rfm.colab$year)
+train.rfm.colab$built<-as.factor(train.rfm.colab$built)
+train.rfm.colab$reno<-as.factor(train.rfm.colab$reno)
+train.rfm.colab<-train.rfm.colab[,-1]
+summary(train.rfm.colab)
+```
+```{r missing data rndom forest test,include=FALSE,eval=FALSE}
+test.rfm<-test[,-c(9,10,11)]
+test.rfm<-missForest(test.rfm,maxiter = 1,ntree = 10,verbose=TRUE)
+summary(test.rfm$ximp)
+test.rfm<-test.rfm$ximp
+summary(test.rfm)
+
+
+test.rfm.colab<-read.csv("test.rfm 20.csv",na.string="NA",header = TRUE,stringsAsFactors = TRUE)
+test.rfm.colab$year<-as.factor(test.rfm.colab$year)
+test.rfm.colab$built<-as.factor(test.rfm.colab$built)
+test.rfm.colab$reno<-as.factor(test.rfm.colab$reno)
+test.rfm.colab<-test.rfm.colab[,-1]
+summary(test.rfm.colab)
+```
+
+```{r missing values proportion check, warning=FALSE}
+vis_miss(train)
+```
+
+```{r missforest total present, eval=FALSE}
+totaldata<-rbind(train[,-c(2,3,9,10,11)],test[,-c(7,8,9)])
+x<-missForest(totaldata[,-1],ntree = 20,verbose=TRUE)
+total.rfm.colab<-cbind(totaldata[,1],x$ximp)
+```
+
+```{r total data split,include=FALSE}
+total.rfm.colab<-read.csv("total.rfm 20.csv",na.string="NA",header = TRUE,stringsAsFactors = TRUE)
+summary(total.rfm.colab)
+
+train.rfm.colab<-total.rfm.colab[which(total.rfm.colab$id %in% train$id),]
+train.rfm.colab<-cbind(id=train.rfm.colab[,1],price=train$price,sent=train$sent,train.rfm.colab[,-1])
+train.rfm.colab$sent<-as.factor(train.rfm.colab$sent)
+train.rfm.colab$year<-as.factor(train.rfm.colab$year)
+train.rfm.colab$built<-as.factor(train.rfm.colab$built)
+train.rfm.colab$reno<-as.factor(train.rfm.colab$reno)
+summary(train.rfm.colab)
+
+test.rfm.colab<-total.rfm.colab[which(total.rfm.colab$id %in% test$id),]
+test.rfm.colab<-cbind(id=test.rfm.colab[,1],test.rfm.colab[,-1])
+test.rfm.colab$year<-as.factor(test.rfm.colab$year)
+test.rfm.colab$built<-as.factor(test.rfm.colab$built)
+test.rfm.colab$reno<-as.factor(test.rfm.colab$reno)
+summary(test.rfm.colab)
+```
+
+Lastly, it is time to deal with the missing values. Based on this plot of missing values, there is a relatively smll proportion of missing values in the training data, however, replacing missing values by a certain number is still unrealistic and brings distortion. As mentioned in the lectures, imputing miss values is also prediction. As a result, prediction models are considered to apply in imputation. According to the article from Stekhoven and Buhlmann, random forest imputation outperformed than many popular imputation algorithms, including KNN, MICE, and MissPALasso, in different proportions of missing values, hence, random forest could be an excellent way to impute the data. To implement random forest imputation, the missForest package is applied, this algorithm firstly fill all missing values with mean/mode, then start to predict the missing values through random forest. This process repeats on iterative until it meets the criteria of error rate or reach the pre-set maximum values of iterations. Since the proportion of missing values is relatively small, stay with the default setting of parameters (number of tree is 100 and maximum iteration is 10) is enough to obtain a desirable accuracy. Additionally, since the calculation of this algorith is heavy, the code were run on the google colab.
+
+## Part iii, price
+Part iii is about the modelling to predict price. To start the modelling, it is insightful to first create several naive models to demonstrate a benchmark for a useful model. Three naive predictions are built, which are the mean, median, and mode of price in the training data set. Applying 10-fold cross validation to these naive predictions, the mean squared error (mse) are 1.297913(mean), 1.30851(median), and 3.099249(mode), respectively. Therefore, any following models should be abolished if its mse is lower than any of the mse of these naive predictions.
+```{r naive predictors}
+train.price<-train.rfm.colab[,-c(1,3)]
+k<-10
+n<-nrow(train.price)
+m<-ncol(train.price)-1
+mse.mean<-rep(NA,k)
+mse.median<-rep(NA,k)
+mse.mode<-rep(NA,k)
+set.seed(1)
+folds<-sample(rep(1:k,length=n))
+for(k in 1:10){
+    l<-nrow(train.rfm.colab[folds==k,])
+    naive.pred.mean<-rep(mean(train.rfm.colab[folds!=k,]$price),l)
+    mse.mean[k]<-mean((naive.pred.mean-train.rfm.colab[folds==k,]$price)^2)
+    naive.pred.median<-rep(median(train.rfm.colab[folds!=k,]$price),l)
+    mse.median[k]<-mean((naive.pred.median-train.rfm.colab[folds==k,]$price)^2)
+    naive.pred.mode<-rep(Mode(train.rfm.colab[folds!=k,]$price),l)
+    mse.mode[k]<-mean((naive.pred.mode-train.rfm.colab[folds==k,]$price)^2)
+}
+mean(mse.mean)
+mean(mse.median)
+mean(mse.mode)
+```
+The following modelling start with applying linear regression. The linear regression modelling using forward selection to select variables and set the 10-fold cross validation mse as the criteria. The own written algorithm keeps adding variables until the 10-fold cross validation mse does not decrease any more. The vector cv.lm records the mse for each fold of validation, the mean of 10-fold cross validation mse (10-fold CV mse) is 0.3772346, which is much lower than mse of any of naive predictions. It proves that it is a useful model.
+```{r linear regression}
+k<-10
+n<-nrow(train.price)
+m<-ncol(train.price)-1
+set.seed(1)
+folds<-sample(rep(1:k,length=n))
+variable_order.lm<-vector()
+compare<-rep(NA,m+1)
+se_mse<-rep(NA,m+1)
+cv.lm<-vector()
+se.lm<-vector()
+for(j in 1:m+1){
+for (i in 1:m+1) {
+  if(i!=1 && i%in%variable_order.lm==FALSE){
+  dta<-train.price[,c(1,variable_order.lm,i)]
+  mse<-rep(NA,10)
+  for(k in 1:10){
+    fwd.model<-lm(price~.,data=dta[folds!=k,])
+    pred<-predict(fwd.model, dta[folds==k,])
+    mse[k]<-mean(((dta[folds==k,]$price)-pred)^2)
+  }
+    se_mse[i]<-sd(mse)/sqrt(10)
+    compare[i]<-mean(mse)
+    print(compare)
+  }
+  if(i==m+1){
+    if(which.min(compare)%in%variable_order.lm==FALSE){
+  variable_order.lm<-c(variable_order.lm,which.min(compare))
+  cv.lm<-c(cv.lm,compare[which.min(compare)])
+  se.lm<-c(se.lm,se_mse[which.min(compare)])
+    }
+  }
+}}
+
+mse.lm<-rep(NA,10)
+for(k in 1:10){
+    print(k)
+    lm<-lm(price~log.h+year+lon+lat+bedrooms+bathrooms+built+log.block+log.pool+cond,data=train.rfm.colab[folds!=k,])
+    pred<-predict(lm, train.rfm.colab[folds==k,-c(1,3)])
+    mse.lm[k]<-mean(((train.rfm.colab[folds==k,]$price)-pred)^2)
+}
+mean(mse.lm)
+```
+
+```{r results lm, echo=FALSE}
+names(train.price)[variable_order.lm]
+cv_minus_se.lm<-cv.lm-se.lm
+cv_plus_se.lm<-cv.lm+se.lm
+rs.lm<-data.frame(cv.lm,cv_minus_se.lm,cv_plus_se.lm)
+tail(rs.lm,1)
+plot(cv.lm,type="b",ylim = c(0.35,0.95),ylab = "CV miss-classification rate",xlab = "Number of variables",main = "Miss-classfication rates VS Number of variables")
+points(cv_plus_se.lm,pch=25,type="b",col="red")
+points(cv_minus_se.lm,pch=24,type="b",col="red")
+legend("topright",legend=c("CV","CV+SE","CV-SE"),col = c("black","red","red"),pch=c(5,25,24),lwd=2,lty=1,box.lty = 1 )
+best.lm<-lm(price~log.h+year+lon+lat+bedrooms+bathrooms+built+log.block+log.pool+cond, data=train.rfm.colab)
+```
+The results shows that the mse decreases dramatically when first four variables are added into the model, and then the reduction of mse becomes smaller. Eventually, the mse reaches the minimum value 0.3772346 after adding 10 variables. The variables are: log.h, year, lon, lat, bedrooms, bathrooms, built, log.block.
+```{r submission lm, eval=FALSE, include=FALSE}
+best.lm<-lm(price~log.h+year+lon+lat+bedrooms+bathrooms+built+log.block+log.pool+cond, data=train.rfm.colab)
+submit.lm<-predict(best.lm, newdata = test.rfm.colab)
+test_submission.lm<-data.frame(id=test.mult$id,price=submit.lm)
+write.csv(test_submission.lm,"C:/Users/123/Desktop/STAT3040/Final Project/submit_lm.csv",row.names = FALSE)
+```
+The score of the submission of test data set to kaggle is 0.39892. 
+There is an alternative way to model selection, which is shrinkage method. Shrinkage method contains all predictors and the regularize the coefficients. For shrinkage method. two particular methods are considered, which are ridge regression and the lasso. To fit the models, the glmnet package is applied. Since turning parameter alpha, the glmnet function can switch between ridge regression and the lasso, thus, these two models are constructed together. 
+```{r ridge regression,echo=FALSE}
+X.ridge<-data.matrix(train.price[,-1])
+y.ridge<-train.price[,1]
+cv.lam<-cv.glmnet(X.ridge,y.ridge,alpha=0)
+cv.lam.lasso<-cv.glmnet(X.ridge,y.ridge,alpha=1)
+plot(cv.lam)
+plot(cv.lam.lasso)
+best.lam<-cv.lam$lambda.min
+best.lam
+best.lam.lasso<-cv.lam.lasso$lambda.min
+best.lam.lasso
+```
+Firstly, I used the cv.glmnet to find the best lambda for ridge regression and the lasso, which are  0.0630683 and 0.001358765, respectively. Then, the 10-fold cross validation mse is applied to evaluate these two models. The 10-fold CV mse for ridge and lasso are 0.4393907 and 0.4301557, respectively. Compared to the linear regression by lm, they are roughly the same level of accuracy, which is reasonable since they are all linear models, however, ridge and lasso can significantly reduce the variance through shrinking the coefficients estimates.
+```{r cv mse for ridge,echo=FALSE}
+mse.ridge<-rep(NA,k)
+mse.lasso<-rep(NA,k)
+for(k in 1:10){
+X.r<-data.matrix(train.price[folds!=k,-1])
+X.t<-data.matrix(train.price[folds==k,-1])
+y.r<-train.price[folds!=k,1]
+ridge.mod<-glmnet(X.r,y.r,alpha = 0)
+pred<-predict(ridge.mod,s=best.lam,newx=X.t)
+mse.ridge[k]<-mean((pred-train.price[folds==k,1])^2)
+lasso.mod<-glmnet(X.r,y.r,alpha = 1)
+pred.lasso<-predict(lasso.mod,s=best.lam.lasso,newx=X.t)
+mse.lasso[k]<-mean((pred.lasso-train.price[folds==k,1])^2)
+}
+mean(mse.ridge)
+mean(mse.lasso)
+```
+
+```{r submission rideg lasso, eval=FALSE, include=FALSE}
+ridge<-glmnet(X.ridge,y.ridge,alpha=0,standardize=TRUE)
+lasso<-glmnet(X.ridge,y.ridge,alpha=1,standardize=TRUE)
+submit.ridge<-predict(ridge,s=best.lam,newx=data.matrix(test.rfm.colab[,-1]))
+submit.lasso<-predict(lasso,s=best.lam.lasso,newx=data.matrix(test.rfm.colab[,-1]))
+test_submission.ridge<-data.frame(id=test.rfm.colab$id,price=submit.ridge)
+test_submission.lasso<-data.frame(id=test.rfm.colab$id,price=submit.lasso)
+colnames(test_submission.ridge)<-c("id","price")
+colnames(test_submission.lasso)<-c("id","price")
+write.csv(test_submission.ridge,"C:/Users/123/Desktop/STAT3040/Final Project/submit_ridge.csv",row.names = FALSE)
+write.csv(test_submission.lasso,"C:/Users/123/Desktop/STAT3040/Final Project/submit_lasso.csv",row.names = FALSE)
+```
+The score of ridge regression and the lasso on kaggle are 0.45234 and 0.44030. Thus, currently, the lasso has the best predictive rank.
+
+Considering the EDA of the relationship between price and the predictors, it is obvious that linearity cannot correctly describe the them. As a result, it would be insightful to add non-linear models, which start from considering polynomials and splines. From EDA, we can find there are distinct gap in the scatter plot of lat and lon, the possible reason could be the houses in Ken-Behrenia are mainly built in two regions. Therefore, it is reasonable to use splines in variable lon and lat, according to the scatter plot, the knots are lon are chosen as -3.5 and 0.5, and the knots of lat are chosen as -3 and -2. For variable log.h, there are many 0s in the graph and data of pool size is clearly separated into two parts. thus splines is also applied and knots are 0.1 and 1.5, which aims to seaprate the 0s and other data points. Additionally, based on the scatter plot between log.h and price, there is a clear quadratic pattern. Thus, we add the quadratic term of log.h. After these adjustments, the generalized additive model (gam) is applied to connect these components.
+```{r splines}
+train.splines<-train.rfm.colab[,-c(1,3)]
+train.splines$bs.lon<-bs(train.splines$lon, knots = c(-3.5,-0.5))
+train.splines$bs.lat<-bs(train.splines$lat,knots=c(-3,-2))
+train.splines$bs.pool<-bs(train.splines$log.pool,knots = c(0.1,1.5))
+train.splines$log.h2<-train.splines$log.h^2
+train.splines<-train.splines[,-c(5,6)]
+```
+```{r gam price, include=FALSE}
+k<-10
+n<-nrow(train.splines)
+m<-ncol(train.splines)-1
+set.seed(1)
+folds<-sample(rep(1:k,length=n))
+variable_order.sp<-vector()
+compare<-rep(NA,m+1)
+se_mse<-rep(NA,m+1)
+cv.sp<-vector()
+se.sp<-vector()
+for(j in 1:m+1){
+for (i in 1:m+1) {
+  if(i!=1 && i%in%variable_order.sp==FALSE){
+  dta<-train.splines[,c(1,variable_order.sp,i)]
+  mse<-rep(NA,10)
+  for(k in 1:10){
+    f <- reformulate(setdiff(colnames(dta), "price"), response="price")
+    fwd.model<-gam(f,data=dta[folds!=k,])
+    pred<-predict(fwd.model, dta[folds==k,])
+    mse[k]<-mean(((dta[folds==k,]$price)-pred)^2)
+  }
+    se_mse[i]<-sd(mse)/sqrt(10)
+    compare[i]<-mean(mse)
+    print(compare)
+  }
+  if(i==m+1){
+    if(which.min(compare)%in%variable_order.sp==FALSE){
+  variable_order.sp<-c(variable_order.sp,which.min(compare))
+  cv.sp<-c(cv.sp,compare[which.min(compare)])
+  se.sp<-c(se.sp,se_mse[which.min(compare)])
+    }
+  }
+}}
+
+mse.sp<-rep(NA,10)
+for(k in 1:10){
+    print(k)
+    sp<-gam(price~poly(log.h,2)+year+bs(lon, knots = c(-3.5,-0.5))+
+                 bs(lat,knots=c(-3,-2))+bedrooms+bathrooms+built
+                +log.block+bs(log.pool,knots = c(0.1))+cond+environ,data=train.rfm.colab[folds!=k,])
+    pred<-predict(sp, train.rfm.colab[folds==k,-c(1,3)])
+    mse.sp[k]<-mean(((train.rfm.colab[folds==k,]$price)-pred)^2)
+}
+mean(mse.sp)
+```
+
+```{r splines result,echo=FALSE}
+names(train.splines)[variable_order.sp]
+cv_minus_se.sp<-cv.sp-se.sp
+cv_plus_se.sp<-cv.sp+se.sp
+rs.sp<-data.frame(cv.sp,cv_minus_se.sp,cv_plus_se.sp)
+tail(rs.sp,1)
+plot(cv.sp,type="b",ylim = c(0.3,0.95),ylab = "CV MSE",xlab = "Number of variables",main = "Miss-classfication rates VS Number of variables")
+points(cv_plus_se.sp,pch=25,type="b",col="red")
+points(cv_minus_se.sp,pch=24,type="b",col="red")
+legend("topright",legend=c("CV","CV+SE","CV-SE"),col = c("black","red","red"),pch=c(5,25,24),lwd=2,lty=1,box.lty = 1 )
+best.gam<-gam(price~log.h+poly(log.h,2)+year+bs(lon, knots = c(-3.5,-0.5))+bs(lat,knots=c(-3,-2))+bedrooms+bathrooms+built+log.block+bs(log.pool,knots = c(0.1,1.5))+cond+reno, data=train.rfm.colab)
+```
+Then, similar to code for linear regression, using 10-fold cross validation mse as the criteria to perform forward selection, the best model is chosen with 12 variables, almost all variables except reno. The lowest MSE recorded is 0.3264436, its 95% confidence interval is [0.3213786,0.3312959].
+```{r spline submit,include=FALSE,eval=FALSE}
+best.gam<-gam(price~log.h+poly(log.h,2)+year+bs(lon, knots = c(-3.5,-0.5))+bs(lat,knots=c(-3,-2))+bedrooms+bathrooms+built+log.block+bs(log.pool,knots = c(0.1,1.5))+cond+reno, data=train.rfm.colab)
+submit.sp<-predict(best.gam, newdata = test.rfm.colab)
+test_submission.sp<-data.frame(id=train.rfm.colab$id,price=submit.sp)
+write.csv(test_submission.sp,"C:/Users/123/Desktop/STAT3040/Final Project/submit_sp.csv",row.names = FALSE)
+```
+The kaggle submission' score is 0.32122, which is much better than previous linear models.
+Based on the forward selection before, exploring the best knots is an alternative to improve to the accuracy. To archive this, I used the Generalized Additive Model (GAM) with method called Generalized Cross-validation (GCV) that can pick the optimal knots for variable lat, lon, and log.pool through GCV scores to balance the between the explanatory power and complexity. The 10-fold cross validation MSE of 0.3151425.
+```{r GCV,include=FALSE,eval=FALSE}
+mse.gam<-rep(NA,10)
+for(k in 1:10){
+  gam.model<-gam(price~poly(log.h,2)+year+s(lon,k=-1,bs = "cs")+
+                  s(lat,k=-1,bs = "cs")+bedrooms+bathrooms+built
+                +log.block+s(log.pool,k=-1,bs = "cs")+cond+environ, data=train.mod[folds!=k,])
+  pred<-predict(gam.model, train.mod[folds==k,])
+  mse.gam[k]<-mean(((train.mod[folds==k,]$price)-pred)^2)
+}
+mean(mse.gam)
+```
+
+```{r submit gam,include=FALSE,eval=FALSE}
+best.gam<-gam(price~poly(log.h,2)+year+s(lon,k=-1,bs = "cs")+
+                  s(lat,k=-1,bs = "cs")+bedrooms+bathrooms+built
+                +log.block+s(log.pool,k=-1,bs = "cs")+cond+envrion, data=na.omit(train))
+submit.gam<-predict(best.gam, newdata = na.omit(test))
+test_submission.gam<-data.frame(id=test.mult$id,price=submit.gam)
+write.csv(test_submission.gam,"C:/Users/123/Desktop/STAT3040/Final Project/submit_gam.csv",row.names = FALSE)
+```
+The submission score of this GAM model is 0.32122. 
+Next model is the glm with application of splines and polynomials without GCV method. To enable the forward selection, the splines and the ploynomial are imposed into dataset. Then the similar forward selection with criteria of 10-fold cross validation is applied.
+```{r glm,include=FALSE}
+k<-10
+n<-nrow(train.splines)
+m<-ncol(train.splines)-1
+set.seed(1)
+folds<-sample(rep(1:k,length=n))
+variable_order.glm<-vector()
+compare<-rep(NA,m+1)
+se_mse<-rep(NA,m+1)
+cv.glm<-vector()
+se.glm<-vector()
+for(j in 1:m+1){
+for (i in 1:m+1) {
+  if(i!=1 && i%in%variable_order.glm==FALSE){
+  dta<-train.splines[,c(1,variable_order.glm,i)]
+  mse<-rep(NA,10)
+  for(k in 1:10){
+    fwd.model<-glm(price~.,data=dta[folds!=k,])
+    pred<-predict(fwd.model, dta[folds==k,])
+    mse[k]<-mean(((dta[folds==k,]$price)-pred)^2)
+  }
+    se_mse[i]<-sd(mse)/sqrt(10)
+    compare[i]<-mean(mse)
+    print(compare)
+  }
+  if(i==m+1){
+    if(which.min(compare)%in%variable_order.glm==FALSE){
+  variable_order.glm<-c(variable_order.glm,which.min(compare))
+  cv.glm<-c(cv.glm,compare[which.min(compare)])
+  se.glm<-c(se.glm,se_mse[which.min(compare)])
+    }
+  }
+}}
+names(train.splines)[variable_order.glm]
+
+mse.glm<-rep(NA,10)
+for(k in 1:10){
+    print(k)
+    glm<-glm(price~poly(log.h,2)+year+bs(lon, knots = c(-3.5,-0.5))+
+                 bs(lat,knots=c(-3,-2))+bedrooms+bathrooms+built
+                +log.block+bs(log.pool,knots = c(0.1))+cond+environ,data=train.rfm.colab[folds!=k,])
+    pred<-predict(glm, train.rfm.colab[folds==k,-c(1,3)])
+    mse.glm[k]<-mean(((train.rfm.colab[folds==k,]$price)-pred)^2)
+}
+mean(mse.glm)
+best.glm<-glm(price~poly(log.h,2)+year+bs(lon, knots = c(-3.5,-0.5))+
+                 bs(lat,knots=c(-3,-2))+bedrooms+bathrooms+built
+                +log.block+bs(log.pool,knots = c(0.1,1.5))+cond+environ, data=train.rfm.colab)
+```
+The lowest 10-fold cross validation MSE archeived when the glm model includes following 12 varaibles: log.h2, year, bs.lat (splines of lat), bs.lon (splines of lon), log.h, built, bedrooms, log.block, bathrooms, cond, bs.pool(splines of log.pook), and environ. The corresponding lowest MSE is 0.3264436.
+```{r submit glm,include=FALSE,eval=FALSE}
+best.glm<-glm(price~poly(log.h,2)+year+bs(lon, knots = c(-3.5,-0.5))+
+                 bs(lat,knots=c(-3,-2))+bedrooms+bathrooms+built
+                +log.block+bs(log.pool,knots = c(0.1,1.5))+cond+environ, data=train.rfm.colab)
+submit.glm<-predict(best.glm, newdata = test.rfm.colab)
+test_submission.glm<-data.frame(id=test.mult$id,price=submit.glm)
+write.csv(test_submission.glm,"C:/Users/123/Desktop/STAT3040/Final Project/submit_glm.csv",row.names = FALSE)
+```
+## The kaggle submission is 
+It is reasonable to try some more complicated method, then we can start to look at the tree based method. The first method is random forest, which is an ensemble method of many operating trees.Firstly, a full random forest tree with full dataset without splines and polynomials is applied, then applying the function VarImPlot to check the importance of the variables and check if it is useful to prune the data set. From the importance plot, it is clear that environ and reno has extreme low importances than other variables. After testing the performance of random forest without these two variables, it is proved that random forest performs better excluding environ, thus, environ is excluded for fiiting random forest. Then, a for loop with the critera of 10-fold CV MSE is applied to choose the best mtry parameter, which is number of variables randomly sampled as candidates. After the iteration, the best mtry is 6.
+```{r random forest}
+full.rf<-randomForest(price~.,data=train.rfm.colab[,-c(1,3)],ntree=50,mtry=5,importance=TRUE)
+varImpPlot(full.rf,type="1")
+
+library(randomForest)
+train.rf<-train.rfm.colab[,-c(1,3)]
+set.seed(1)
+k<-10
+m<-ncol(train.splines)-1
+set.seed(1)
+folds<-sample(rep(1:k,length=n))
+```
+```{r tune parameters of random forest price, eval=FALSE}
+cv.rf<-vector()
+se.rf<-vector()
+for(j in 1:12){
+  print(j)
+  for(k in 1:10){
+    print(k)
+    fwd.model<-randomForest(price~.,data=train.rf[folds!=k,],ntree=5,mtry=6,importance=TRUE)
+    pred<-predict(fwd.model, train.rf[folds==k,])
+    mse[k]<-mean(((train.mod[folds==k,]$price)-pred)^2)
+  }
+  cv.rf<-c(cv.rf,mean(mse))
+}
+```
+
+```{r cv random forest price}
+mse.rf<-rep(NA,10)
+for(k in 1:10){
+    print(k)
+    rf<-randomForest(price~.,data=train.rfm.colab[folds!=k,-c(1,3)],ntree=20,mtry=6,importance=TRUE)
+    pred<-predict(rf, train.rfm.colab[folds==k,-c(1,3)])
+    mse.rf[k]<-mean(((train.rfm.colab[folds==k,]$price)-pred)^2)
+  }
+```
+As a result, we collect the best data and best mtry for the random forest. Then,we can build the optimal random forest to submit to kaggle.
+```{r submit random forest,include=FALSE,eval=FALSE}
+best.rf<-randomForest(price~.,data=train.rfm.colab[,-c(1,3)],ntree=50,mtry=6,importance=TRUE)
+test.rfm.colab <- rbind(train.rfm.colab[1, -c(2,3)] , test.rfm.colab)
+test.rfm.colab<- test.rfm.colab[-1,]
+submit.rf<-predict(best.rf, newdata = test.rfm.colab)
+test_submission.rf<-data.frame(id=test.mod$id,price=submit.rf)
+write.csv(test_submission.rf,"C:/Users/123/Desktop/STAT3040/Final Project/submit_rf.csv",row.names = FALSE)
+```
+The score of Kaggle submission is 0.27677, which is a big improvement.
+Boosting is another popular tree based model. The procedure of choose best data and best parameter of interaction.depth is similar to that of random forest. Firstly, a boosting free for a full data set is contructed with tree size of 2000, and the summary function of boosting can provide the relevant influence of predictors to the response. From the graph, we can see that reno and environ are the two least influential, however, delete either of them does not make a significant difference, therefore, the full data set is kept. Then, another for loop to figure out the best parameter of interaction depth.
+```{r boosting graph}
+set.seed(1)
+boost<-gbm(price~.,data=train.rfm.colab[folds!=1,-c(1,3)], distribution="gaussian",n.trees=2000,interaction.depth=7)
+summary(boost)
+pred<-predict(boost, train.rfm.colab[folds==1,-c(1,3)])
+mean(((train.rfm.colab[folds==1,]$price)-pred)^2)
+```
+
+```{r tune boosting price parameter, include=FALSE,eval=FALSE}
+for(k in 1:10){
+    print(k)
+    boost<-gbm(price~.,data=train.rfm.colab[folds!=k,-c(1,3)], distribution="gaussian",n.trees=2000,interaction.depth=5)
+    pred<-predict(boost, train.rfm.colab[folds==k,-c(1,3)])
+    mse.del[k]<-mean(((train.rfm.colab[folds==k,]$price)-pred)^2)
+  }
+
+int.dep<-rep(NA,10)
+mse.bt<-rep(NA,3)
+for (i in 1:10) {
+  print(i)
+  for(k in 1:10){
+    print(k)
+    boost<-gbm(price~.,data=train.rfm.colab[folds!=k,-c(1,3)], distribution="gaussian",n.trees=100,interaction.depth=j)
+    pred<-predict(boost, train.rfm.colab[folds==k,-c(1,3)])
+    mse.bt[k]<-mean(((train.rfm.colab[folds==k,]$price)-pred)^2)
+  }
+int.dep[i]<-mean(mse.bt)
+}
+int.dep
+plot(int.dep,type="b",ylim = c(0.25,0.3),ylab = "CV MSE",xlab = "Interaction.depth",main = "MSE VS Interaction.depth")
+```
+
+```{r cv boosting price111, include=FALSE}
+mse.del<-rep(NA,10)
+mse.withoutdel<-rep(NA,10)
+for(k in 1:10){
+    print(k)
+    boost<-gbm(price~.,data=train.rfm.colab[folds!=k,-c(1,3)], distribution="gaussian",n.trees=2000,interaction.depth=5)
+    pred<-predict(boost, train.rfm.colab[folds==k,-c(1,3)])
+    mse.del[k]<-mean(((train.rfm.colab[folds==k,]$price)-pred)^2)
+}
+mean(mse.del)
+```
+From the loop, we can see even though the best performance is when the interaction.depth equals 5, however, interaction.depth does not change the mse a lot. Therefore, we do not need to pay too much attention on it. Therefore, we can construct the boosting model. The 10-fold cross validation mse of the boosting model is 0.252642.
+```{r boosting submission, include=FALSE,eval=TRUE}
+best.boost<-gbm(price~.,data=train.rfm.colab[,-c(1,3)],distribution="gaussian",n.trees=5000,interaction.depth=5)
+submit.boost<-predict(best.boost, newdata = test.rfm.colab)
+test_submission.boost<-data.frame(id=test.mod$id,price=submit.boost)
+write.csv(test_submission.boost,"C:/Users/123/Desktop/STAT3040/Final Project/submit_boost.csv",row.names = FALSE)
+```
+The score of the submission to kaggle is 0.26381, which is currently the best performance model.
+Considering that tree-based models perform brilliantly, it is motivated to introduce a optimized boosting method, Extreme Gradient Boosting (xgboost). Both xgboost and gbm follows the gradient boosting method. They key differences between gbm and xgboost is that xgboost provides more parameters to adjust the boosting model, especially for the regularization of models to control overfitting. Generally, with the help of these parameters, xgboost can provide better performance even with the same algorithm of gradient boosting. The xgboost function provide many parameters, in this modelling, we mainly focus on max.depth, eta, and nrounds. Max.depth is the maximum depth of each tree in the boosting and nrounds represent the maximum number of iteration which is similar to the maximum number of trees. The eta control the learning rate (0<eta<1), which can be applied to control overfitting. Lower eta means slower learning rate and implies to need larger value of nround, at the same time, lower eta means more robust to the overfitting but slower to compute. To begin with, the evaluation metric is set to mse and then then we chose nrounds to 500 to start. In a similar way as boosting, several for loops are set to choose the best max.depth and eta repeatedly using 10-fold cross validation mse. Finally, the combination of max.depth = 6 and eta = 0.1 provide the best performance. After that, we start to increase the nrounds, and 10-fold cross validation keep decrease with the increase of nrounds. Finally, based on the iteration and the laptop's ability of computing, the nround is set as 600. The 10-fold cross validation mse is 0.2354381.
+```{r xgboost}
+train.xb.p<-train.rfm.colab[,-c(1,3)]
+train.xb.p$reno<-as.numeric(train.xb.p$reno)
+train.xb.p$year<-as.numeric(train.xb.p$year)
+train.xb.p$built<-as.numeric(train.xb.p$built)
+
+mse.xgboost<-rep(NA,10)
+for(k in 1:10){
+    print(k)
+    xgboost.sent<-xgboost(data=as.matrix(train.xb.p[folds!=k,-1]),label=train.xb.p[folds!=k,]$price,eta=0.01, max_depth=8,eval_metric = "rmse",colsample_bylevel=0.5,colsample_bytree=0.8,subsample=0.8,nrounds=7400)
+    pred<-predict(xgboost.sent, as.matrix(train.xb.p[folds==k,-1]))
+    mean(((train.xb.p[folds==k,]$price)-pred)^2)
+    mse.xgboost[k]<- mean(((train.xb.p[folds==k,]$price)-pred)^2)
+}
+mean(mse.xgboost)
+```
+```{r one hot encoding, eval=FALSE,include=FALSE}
+train.xb.p<-train.rfm.colab[,-c(1,3)]
+train.xb.p$reno<-as.numeric(train.xb.p$reno)
+year <- model.matrix(~year-1,train.xb.p)
+built <- model.matrix(~built-1,train.xb.p)
+train.xb.p<-cbind(train.xb.p[,-c(3,4)],year,built)
+
+test.xb.p<-test.rfm.colab[,-c(1)]
+test.xb.p$reno<-as.numeric(test.xb.p$reno)
+year.test <- model.matrix(~year-1,test.xb.p)
+built.test <- model.matrix(~built-1,test.xb.p)
+test.xb.p<-cbind(test.xb.p[,-c(2,3)],year.test,built.test)
+```
+
+```{r xg boosting submission, include=FALSE,eval=FALSE}
+params <- list(objective = "reg:squarederror", eta=0.01, max_depth=8,eval_metric = "rmse",colsample_bylevel=0.5,
+colsample_bytree=0.8,subsample=0.8)
+xgbcv <- xgb.cv( params = params, data = as.matrix(train.xb.p[,-1]),label=train.xb.p$price, nrounds = 8000, 
+nfold = 10, showsd = T, print.every.n = 20, seed=1)
+
+test.xb.p<-test.rfm.colab[,-c(1)]
+test.xb.p$reno<-as.numeric(test.xb.p$reno)
+test.xb.p$year<-as.numeric(test.xb.p$year)
+test.xb.p$built<-as.numeric(test.xb.p$built)
+
+best.xgboost<-xgboost(data=as.matrix(train.xb.p[,-1]),label=train.xb.p$price,eta=0.01, max_depth=8,eval_metric = "rmse",colsample_bylevel=0.5,
+colsample_bytree=0.8,subsample=0.8,nrounds=7400)
+submit.xgboost<-predict(best.xgboost, newdata = as.matrix(test.xb.p))
+test_submission.boost<-data.frame(id=test$id,price=submit.xgboost)
+write.csv(test_submission.boost,"C:/Users/123/Desktop/STAT3040/Final Project/submit_xgboost.price.csv",row.names = FALSE)
+```
+## The submission of xgboost on kaggle is .
+
+## Neural Network is also considered, however, it does not archieve a good score. Since it is time consuming to put in R markdown to complie, therefore, this pary is not mentioned in this report.
+
+In this section for predicting price, several naive models, multiple linear regression, ridge regression, the lasso, generalized additive model (including splines and polynomials), generalized linear model, random forest, and boosting. These models will be compare in following dimensions: 10-fold cross validation performance, uncertainty, and predictive rank on kaggle. To begin with, the 10-fold cross validation MSE is demonstrated on the plot below through the form of [CV,CV-SE,CV+SE].
+```{r 10-fold CV compare price}
+cv.compare<-cbind(mse.lm,mse.ridge,mse.lasso,mse.sp,mse.glm,mse.rf,mse.del,mse.xgboost)
+cv.mean<-apply(cv.compare, 2, mean)
+cv.se<-apply(cv.compare, 2, sd)/sqrt(10)
+cv.compare<-cbind(cv.mean-cv.se,cv.mean,cv.mean+cv.se)
+colnames(cv.compare)<-c("cv_minus_se","cv","cv_plus_se")
+rownames(cv.compare)<-c("lm","ridge","lasso","gam","glm","random forest","gbm","xgboost")
+ggplot(as.data.frame(cv.compare), aes(x=rownames(as.data.frame(cv.compare)), y=cv)) + geom_errorbar(aes(ymin=cv_minus_se, ymax=cv_plus_se), width=.1, 
+    position=position_dodge(0.05))+geom_line() + geom_point()+
+   scale_color_brewer(palette="Paired")+theme_minimal()+labs(title="[CV,CV-SE,CV+SE] plot for four models")
+```
+As we calculated before, the mse of three naive models with using mode, mean, and median are all higher than 1, which is much higher than all models fitted later. Therefore, all models fitted later can be regarded as helpful models. Shown by the results, linear models including multiple linear regression, ridge, and lasso perform worse than others, which implies that simple linear models are not flexible enough to explain the prediction of price based on these covariates. More flexible models, glm and gam, perform much better than linear models as it allows more flexibility into the model to fit the data. Furthermore, tree-based methods of random forest and boosting desirably decrease the 10-fold CV further. Nevertheless, the increase of flexibility also brings drawbacks as well. Generally, high flexible models can decrease the interpretability, for example, people can always easily explain the coefficients of linear model but they can barely explain what happens in the random forest or boosting, which can hinder people to understand the models. Additionally, high flexibility can possibly increase the variance, however, the best performers random forest and boosting models (xgboost and gbm) deal with the variance issues smoothly. Random forest reduce variance by randomly choosing subsets of features and use random samples while gbm reduces variance by introducing huge number of trees and taking weighted average of many weaker models, and xgboost here mainly reduces variance by lowering the learning rate and taking weighted average of many weaker models.
+
+The second dimension of the comparison is uncertainty, which is also a important criteria to pick a model. As instructed from the textbook(Gareth, Daniela, Trevor & Robert, 2013), there are three sorts of uncertainty related to models. The first one is uncertainty of coefficients of the model, which can be measured by the confidence intervals of coefficients; the second one is the uncertainty of model bias; the last one is the uncertainty of irreducible error from random error, which can be measured by prediction intervals.
+```{r ci of coefficients for lm}
+summary(best.lm)$coef[,2]
+summary(best.glm)$coef[,2]
+summary(best.gam)
+```
+There are two ways to evaluate the uncertainty of coefficient, confidence interval of coefficients by confint command and the standard error of coefficients by summary table for models. It is obvious that the second way of standard error is more intuitive and obvious, thus, the standard errors of coefficients are applied for later models as well. From the results, it demonstrates that the uncertainty of coefficients is reasonably small, which is desirable. As random forest, gbm and xgboost do not provide coefficients, so they are not include into the uncertainty evaludation. For ridge and lasso, both of them include penlaize terms. However, for penalized regression, it is almost impossible to obtain an unbiased coefficient estimate whereas standard error of penalized coefficients only report part of the story and give a mistaken impression (Goeman, Meijer, Chaturvedi, 2022). For the rest of models, the standard error of their coefficients are calculated. The standard errors of glm and gam are similar while the multiple linear regression's standard errors are significantly smaller on several variables, especially for the variables that are included into splines in glm and gam, which is consistent with the trade-off between bias and variance.
+For the second uncertainty of model bias, its measurement is complicated and depends on the truth of relationship between price and the predictors. Since we do not the truth of reality, it is hard and inaccurate to quantify the bias, however, we can talk about model bias theoretically. The model bias is introduced by approximating the real-world issues by much simpler model, from EDA, we can see the relationship between price and predictors are much complicated than linear, thus, there are much bias introduced by applying linear regression. Additionally, the performance of 10-fold cross validation and kaggle are consistent with that, linear models perform worst, which implies the bias of approximating predicting price by linear models. Also, there is the variance-bias trade off, which means more flexible model tends to have higher variance and lower bias. Therefore, based on the flexibility, gam and glm should have less bias than linear models. Another interesting to notice is that, error = bias+variance+irreducible error, however, the best performers random forest and boosting have different ways to reduce the errors. Boosting models reduce error mainly by reducing the bias. Both xgboost and gbm are based on gradient boosting, whose algorithm keeps attacking the residuals/errors left from previous trees. Random forest reduce error through decreasing variance as it randomly choosing subsets of features and use random samples.
+Lastly, for the uncertainty of random error, the prediction intervals are the recommended method to quantify this sort of uncertainty, however, r language is unable to provide prediction intervals for many models used above, for example, ridge and lasso. Fortunately, the standard error of 10-fold cross validation MSE is also an insightful indicator for quantify the uncertainty of prediction. For the standard error of these models except naive predictions, all models have reasonably low uncertainty of prediction. The naive predictions are quite uncertain, as it use a certain number to predict unseen data, which means it is easily affected by variance of unseen data. Among all other models, random forest and boosting models have the lowest variance, which is due to reasons as discussed before: their algorithms are able to reduce variance when they are running.
+```{r cv.se present}
+cv.se.present<-as.data.frame(cv.se)
+cv.se.present$names<-c("lm","ridge","lasso","gam","glm","random forest","boosting","xgboost")
+cv.se.present
+```
+## The last dimension is the predictive ranks on kaggle, which are basically consistent with the results of 10-fold cross validation. XGboost and gbm performs best, which are  and 0.26381, respectively. Linear models have the higher MSE on kaggle as well, the highest one is ridge regression, which is 0.45234.
+```{r importance from boosting}
+best.xgboost<-xgboost(data=as.matrix(train.xb.p[,-1]),label=train.xb.p$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+mat <- xgb.importance (feature_names = colnames(train.xb.p[,-1]),model = best.xgboost)
+xgb.plot.importance (importance_matrix = mat[1:12]) 
+```
+For our best model xgboost, xgb.plot.importance function can generate the covariates' relative scientific importance values to price. From this table, it is obvious that loh.h, year, lat, and lon are much more scientifically significant than other covairates, which means the size of living space, the year it was sold, its latitude and longitude are the most influential to a house's price. By contrast, reno and environ is the least scientific important factors, which means whether the house was renovated before sale and its density does not affect a house's price too much. 
+```{r statistical significance ,include=FALSE,eval=FALSE}
+B <- 50
+f1<-sample(1:10,1)
+train.x<-train.xb.p[folds!=f1,]
+valid.x<-train.xb.p[folds==f1,]
+difference.reno <- rep(NA,B)
+difference.environ <- rep(NA,B)
+difference.cond<- rep(NA,B)
+difference.built <- rep(NA,B)
+difference.lat <- rep(NA,B)
+difference.lon <- rep(NA,B)
+difference.bedrooms <- rep(NA,B)
+difference.bathrooms <- rep(NA,B)
+difference.pool <- rep(NA,B)
+difference.block <- rep(NA,B)
+difference.h <- rep(NA,B)
+for (i in 1:B) {
+    print(i)
+    train.bootstrap <- train.x[sample(1:dim(train.x)[1], dim(train.x)[1], replace=TRUE),]
+    valid.bootstrap <- valid.x[sample(1:dim(valid.x)[1], dim(valid.x)[1], replace=TRUE),]
+    bt.xgboost<-xgboost(data=as.matrix(train.bootstrap[,-1]),label=train.bootstrap$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+    pred.benchmark<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-1]))
+    mse.benchmark<-mean(((valid.bootstrap$price)-pred.benchmark)^2)
+    
+    bt.xgboost.delreno<-xgboost(data=as.matrix(train.bootstrap[,-c(1,7)]),label=train.bootstrap$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+    pred.delreno<-predict(bt.xgboost.delreno, as.matrix(valid.bootstrap[,-c(1,7)]))
+    mse.delreno<-mean(((valid.bootstrap$price)-pred.delreno)^2)
+    
+    bt.xgboost.delenviron<-xgboost(data=as.matrix(train.bootstrap[,-c(1,10)]),label=train.bootstrap$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+    pred.delenvrion<-predict(bt.xgboost.delenviron, as.matrix(valid.bootstrap[,-c(1,10)]))
+    mse.delenviron<-mean(((valid.bootstrap$price)-pred.delenvrion)^2)
+    
+    bt.xgboost.delenviron<-xgboost(data=as.matrix(train.bootstrap[,-c(1,2)]),label=train.bootstrap$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+    pred.2<-predict(bt.xgboost.delenviron, as.matrix(valid.bootstrap[,-c(1,2)]))
+    mse.cond<-mean(((valid.bootstrap$price)-pred.2)^2)
+    
+    bt.xgboost<-xgboost(data=as.matrix(train.bootstrap[,-c(1,3)]),label=train.bootstrap$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,3)]))
+    mse.year<-mean(((valid.bootstrap$price)-pred.2)^2)
+    
+    bt.xgboost<-xgboost(data=as.matrix(train.bootstrap[,-c(1,4)]),label=train.bootstrap$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,4)]))
+    mse.built<-mean(((valid.bootstrap$price)-pred)^2)
+
+    bt.xgboost<-xgboost(data=as.matrix(train.bootstrap[,-c(1,5)]),label=train.bootstrap$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,5)]))
+    mse.lat<-mean(((valid.bootstrap$price)-pred)^2)
+    
+    bt.xgboost<-xgboost(data=as.matrix(train.bootstrap[,-c(1,6)]),label=train.bootstrap$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,6)]))
+    mse.lon<-mean(((valid.bootstrap$price)-pred)^2)
+    
+    bt.xgboost<-xgboost(data=as.matrix(train.bootstrap[,-c(1,8)]),label=train.bootstrap$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,8)]))
+    mse.bedrooms<-mean(((valid.bootstrap$price)-pred)^2)
+
+    bt.xgboost<-xgboost(data=as.matrix(train.bootstrap[,-c(1,9)]),label=train.bootstrap$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,9)]))
+    mse.bathrooms<-mean(((valid.bootstrap$price)-pred)^2)
+    
+    bt.xgboost<-xgboost(data=as.matrix(train.bootstrap[,-c(1,11)]),label=train.bootstrap$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,11)]))
+    mse.pool<-mean(((valid.bootstrap$price)-pred)^2)
+    
+    bt.xgboost<-xgboost(data=as.matrix(train.bootstrap[,-c(1,12)]),label=train.bootstrap$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,12)]))
+    mse.block<-mean(((valid.bootstrap$price)-pred)^2)
+    
+    bt.xgboost<-xgboost(data=as.matrix(train.bootstrap[,-c(1,13)]),label=train.bootstrap$price,max.depth=6,nrounds = 600,objective = "reg:squarederror",eval_metric = "mae",eta=0.1)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,13)]))
+    mse.h<-mean(((valid.bootstrap$price)-pred)^2)
+    
+    
+    difference.reno[i] <-  mse.benchmark - mse.delreno
+    difference.environ[i]<-mse.benchmark - mse.delenviron
+    difference.cond[i]<- mse.benchmark - mse.cond
+    difference.built[i] <-mse.benchmark - mse.built
+    difference.lat[i]<- mse.benchmark - mse.lat
+    difference.lon[i] <- mse.benchmark - mse.lon
+    difference.bedrooms[i] <-mse.benchmark - mse.bedrooms
+    difference.bathrooms[i] <- mse.benchmark - mse.bathrooms
+    difference.pool[i] <- mse.benchmark - mse.pool
+    difference.block[i] <- mse.benchmark - mse.block
+    difference.h [i]<- mse.benchmark - mse.h
+    difference.year[i] <- mse.benchmark - mse.year
+}
+
+```
+
+```{r read results price,echo=FALSE}
+difference.price<-read.csv("difference.price.csv",na.string="NA",header = TRUE,stringsAsFactors = FALSE)
+summary(difference.price)
+t.test(difference.price$environ,mu=0)
+t.test(difference.price$reno,mu=0)
+t.test(difference.price$cond,mu=0)
+t.test(difference.price$built,mu=0)
+t.test(difference.price$year,mu=0)
+t.test(difference.price$bedrooms,mu=0)
+t.test(difference.price$bathrooms,mu=0)
+t.test(difference.price$log.block,mu=0)
+t.test(difference.price$log.h,mu=0)
+t.test(difference.price$lat,mu=0)
+t.test(difference.price$lon,mu=0)
+t.test(difference.price$log.pool,mu=0)
+```
+In terms of the statistical significance of the best performer, unfortunately, xgboost is a black-box model, which does not provided information related to statistical significance. Nevertheless, the bootstrap algorithm provides a way to indicate the statistical significance of covariates. Firstly, it algorithm will generate a model with full covariates as a benchmark and then generate 13 models that excludes one covariate each. Then calculate the difference of mse between these models and the benchmark model. Then, applying the bootstrap algorithm to keep repeating the process above. After that, using t-test to test whether the hypothesis the difference is 0 is statistically significant. This algorithm can provide us the insights that whether including a covariate can improve the accuracy is statistically significant. Due to the huge amount of calculation, this bootstrap algorithm is calculated on google colab. The results demonstrates that the covariates bathrooms, cond, and log.pool are statistically insignificant while others are statistically signifciant. One thing neet to be noticed, because the calculation is demanding, therefore the boostrap only takes 20 times, so the reults may be different if we keep increasing the number of bootstraps. Additionally, the statistical and scientific significance of the covariates can be analyse with the combined analysis from linear model, since, after all, both model are actually doing the prediction of price through using the predictors. 
+
+```{r best.lm significance,echo=FALSE}
+lm.full<-lm(price~., data=train.rfm.colab[,-c(1,3)])
+summary(lm.full)
+```
+With generating the linear regression model of price to the full data set, we can find that only reno and environ are not statistically significant while others are statistically significant. Regarding the scientific significance of covariates in the linear regression, we can assess the size of coefficients. It is found that, the coefficients of year, log.h are larger than 1, thus they are the most scientifically significant variables. Coefficients of lat, lon, and built are relatively large compared to other variables, which implies they are important in terms of scientific sense as well. This result of scientific importance of covariates are consistent with the results from xgboost model.
+
+Xgboost is a powerful and popular modelling algorithm, and it does best in the modelling for predicting price in Ken-Behrenia. Nevertheless, there are some disadvantages of this powerful tool. Firstly, xgboost has black-box nature and offer limited information of the model, which decreases its interpretability. For example, xgboost does not present the statistical significance of the effects of covariates, which means users need to combine other models or do additional works to analyse this problem. In addition, xgboost may perform undesirable in special datam including image recognition, computer vision, and natural language processing. Furthermore, xgboost is time-consuming. The training time is much longer even compared to gbm and random forest. Lastly, users need to be very careful to adjust the learning rate to control overfitting issues and always use validation to check since the algorithm keeps fitting models based on residuals of previous trees, which may cause overfitting issues.
+
+## part iv
+This part is about predicting sentiment, a satisfaction score taken 6 months after the sale price. In this section, the assessment criteria is set as correct classification rate. To begin with, two naive classifiers are constructed as a benchmark to tell whether a model is helpful. One naive classifier (NC 1) predict 0 for all unseen data, the other one predict (NC 2) all data with 1. The 10-fold cross validation correct classification rate of naive classifier NC 1 is 0.2479667 and that of NC 0 is 0.7520333. As a result, any model whose correct classification rate is lower than 0.7520333 can be regarded as unhelpful to classification.
+```{r naive predictor,echo=FALSE}
+msr.sent1<-rep(0,10)
+msr.sent0<-rep(0,10)
+for(k in 1:10){
+  l<-nrow(train.rfm.colab[folds==k,])
+  naive.sent1<-rep(1,l)
+  tab <- table(train.rfm.colab[folds==k,]$sent, naive.sent1)
+  msr.sent1[k]<-1-(sum(diag(tab)) / sum(tab))
+  naive.sent0<-rep(0,l)
+  tab <- table(train.rfm.colab[folds==k,]$sent, naive.sent0)
+  msr.sent0[k]<-(sum(diag(tab)) / sum(tab))
+}
+mean(msr.sent1)
+mean(msr.sent0)
+```
+The first model is generalized linear model. Based on the EDA, the patterns of lat, lon, and log.pool also separated in a similar way as we observed in part iii. As a result, the splines are still kept for glm. Similarly, the forward selection with the 10-fold correct classification rate as criteria is applied. The results shown that the best performance is achieved when the model includes six variables: log.h, bs.lon, bs.lat, built, cond, and bedrooms, the correct classification rate is 0.8079333.
+```{r glm sent,echo=FALSE}
+train.sent<-train.rfm.colab[,-c(1,2)]
+train.sent$bs.lon<-bs(train.sent$lon, knots = c(-3.5,-0.5))
+train.sent$bs.lat<-bs(train.sent$lat,knots=c(-3,-2))
+train.sent$bs.pool<-bs(train.sent$log.pool,knots = c(0.1))
+train.sent<-train.sent[,-c(5,6)]
+train.sent$bedrooms<-as.numeric(train.sent$bedrooms)
+train.sent$bathrooms<-as.numeric(train.sent$bathrooms)
+
+k<-10
+n<-nrow(train.sent)
+m<-ncol(train.sent)-1
+set.seed(1)
+folds<-sample(rep(1:k,length=n))
+variable_order.glm.s<-vector()
+compare<-rep(NA,m+1)
+se_msr<-rep(NA,m+1)
+cv.glm.s<-vector()
+se.glm.s<-vector()
+for(j in 1:m+1){
+for (i in 1:m+1) {
+  if(i!=1 && i%in%variable_order.glm.s==FALSE){
+  dta<-train.sent[,c(1,variable_order.glm.s,i)]
+  msr<-rep(NA,10)
+  for(k in 1:10){
+    fwd.model<-glm(sent~.,data=dta[folds!=k,],family = "binomial")
+    pred<-predict(fwd.model, dta[folds==k,],type = "response")
+    tab <- table(dta[folds==k,]$sent, pred >= 0.5)
+    msr[k]<-(sum(diag(tab)) / sum(tab))
+  }
+    se_msr[i]<-sd(msr)/sqrt(10)
+    compare[i]<-mean(msr)
+    print(compare)
+  }
+  if(i==m+1){
+    if(which.max(compare)%in%variable_order.glm.s==FALSE){
+  variable_order.glm.s<-c(variable_order.glm.s,which.max(compare))
+  cv.glm.s<-c(cv.glm.s,compare[which.max(compare)])
+  se.glm.s<-c(se.glm.s,se_msr[which.max(compare)])
+    }
+  }
+}}
+names(train.sent)[variable_order.glm.s]
+```
+The threshold of probability also significantly affect the performance, in the above forward selection, the threshold is set as 0.5. Now, the best threshold can be selected through for loop iteration.
+```{r find the best threshold,echo=FALSE}
+threshold<-seq(0.01,0.85,by=0.01)
+n.t<-length(threshold)
+overall<-rep(0,n.t)
+true.pos<-rep(0,n.t)
+true.neg<-rep(0,n.t)
+tp<-rep(0,k)
+tn<-rep(0,k)
+for (i in 1:n.t) {
+  for(k in 1:10){
+    fwd.model<-glm(sent~log.h+bs.lon+bs.lat+built+bedrooms+cond,data=train.sent[folds!=k,],family = "binomial")
+    pred<-predict(fwd.model, train.sent[folds==k,],type = "response")
+    tab <- table(train.sent[folds==k,]$sent, pred >= threshold[i])
+    msr[k]<-(sum(diag(tab)) / sum(tab))
+    tp[k]<-tab[1,1]/(tab[1,1]+tab[2,1])
+    tn[k]<-tab[2,2]/(tab[1,2]+tab[2,2])
+  }
+  overall[i]<-mean(msr)
+  true.pos[i]<-mean(tp)
+  true.neg[i]<-mean(tn)
+}
+
+{plot(threshold, overall, lwd=3,type = "l",ylim = c(0,1),ylab = "Error rates", main = "Error rates for different thresholds")
+lines(threshold, true.pos, col="orange",lwd=3)
+lines(threshold, true.neg, col="blue",lwd=3)
+legend("topleft",legend=c("overall","true.pos","true.neg"),col=c("black","orange","blue"),lty=c(1,1,1),lwd=3)}
+max(overall)
+which.max(overall)
+
+mse.glm.s<-rep(NA,10)
+for(k in 1:10){
+    print(k)
+    glm.s<-glm(sent~log.h+bs.lon+bs.lat+built+bedrooms+cond,data=train.sent[folds!=k,],family = "binomial")
+    pred<-predict(glm.s, train.sent[folds==k,],type = "response")
+    tab <- table(train.sent[folds==k,]$sent, pred >= 0.47)
+    mse.glm.s[k]<-(sum(diag(tab)) / sum(tab))
+}
+mean(mse.glm.s)
+best.glm.s<-glm(sent~log.h+bs(lon, knots = c(-3.5,-0.5))+bs(lat,knots=c(-3,-2))+built+bedrooms+reno,data=train.mod,family = "binomial")
+```
+From this results and this plot, the maximum correct classification rate is when threshold is 0.47, and the final glm model is set with this threshold. The 10-fold correct classification rate of the final glm model is 0.8090333.
+```{r glm sent submission,include=FALSE,eval=FALSE}
+best.glm.s<-glm(sent~log.h+bs(lon, knots = c(-3.5,-0.5))+bs(lat,knots=c(-3,-2))+built+bedrooms+reno,data=train.mod,family = "binomial")
+submit.glm.s<-predict(best.glm.s, newdata = test.mod ,type="response")
+submit.glm.s<-ifelse(submit.glm.s>=0.47,1,0)
+test_submission.glm.s<-data.frame(id=test.mod$id,sent=submit.glm.s)
+write.csv(test_submission.glm.s,"C:/Users/123/Desktop/STAT3040/Final Project/submit_glm.s.csv",row.names = FALSE)
+```
+The score of kaggle submission of glm model is 0.80860.
+
+Linear discriminant analysis (LDA) is the another popular model for classification. The forward selection with 10-fold correct classification rate is applied as well. The LDA model with 6 covariates: log.h, bs.lon, bs.lat, built, bedrooms, and bathroom performs best.
+```{r lda,echo=FALSE}
+k<-10
+n<-nrow(train.sent)
+m<-ncol(train.sent)-1
+variable_order.lda.s<-vector()
+compare<-rep(NA,m+1)
+se_mse<-rep(NA,m+1)
+cv.lda.s<-vector()
+se.lda.s<-vector()
+for(j in 1:m+1){
+for (i in 1:m+1) {
+  if(i!=1 && i%in%variable_order.lda.s==FALSE){
+  dta<-train.sent[,c(1,variable_order.lda.s,i)]
+  msr<-rep(NA,10)
+  for(k in 1:10){
+    fwd.model<-lda(sent~.,data=dta[folds!=k,])
+    pred<-predict(fwd.model, dta[folds==k,])
+    pred.i<-rep(0, nrow(dta[folds==k,]))
+    pred.i[pred$posterior[,2]>=0.5]<-1
+    tab <- table(train.sent[folds==k,]$sent, pred.i)
+    msr[k]<-(sum(diag(tab)) / sum(tab))
+  }
+    se_msr[i]<-sd(msr)/sqrt(10)
+    compare[i]<-mean(msr)
+    print(compare)
+  }
+  if(i==m+1){
+    if(which.max(compare)%in%variable_order.lda.s==FALSE){
+  variable_order.lda.s<-c(variable_order.lda.s,which.max(compare))
+  cv.lda.s<-c(cv.lda.s,compare[which.max(compare)])
+  se.lda.s<-c(se.lda.s,se_msr[which.max(compare)])
+    }
+  }
+}
+  }
+names(train.sent)[variable_order.lda.s]
+```
+The classification of LDA can be determined by setting the posterior probability. Thus, another for loop is built to choose the best threshold. 
+
+```{r best threshold lda,echo=FALSE}
+threshold<-seq(0.01,0.85,by=0.01)
+n.t<-length(threshold)
+overall<-rep(0,n.t)
+true.pos<-rep(0,n.t)
+true.neg<-rep(0,n.t)
+tp<-rep(0,k)
+tn<-rep(0,k)
+for (i in 1:n.t) {
+  for(k in 1:10){
+    fwd.model<-lda(sent~log.h+bs.lon+bs.lat+built+bedrooms+bathrooms,data=train.sent[folds!=k,])
+    pred<-predict(fwd.model, train.sent[folds==k,])
+    pred.i<-rep(0, nrow(train.sent[folds==k,]))
+    pred.i[pred$posterior[,2]>=threshold[i]]<-1
+    tab <- table(train.sent[folds==k,]$sent, pred.i)
+    msr[k]<-(sum(diag(tab)) / sum(tab))
+    tp[k]<-tab[1,1]/(tab[1,1]+tab[2,1])
+    tn[k]<-tab[2,2]/(tab[1,2]+tab[2,2])
+  }
+  overall[i]<-mean(msr)
+  true.pos[i]<-mean(tp)
+  true.neg[i]<-mean(tn)
+}
+```
+
+```{r plot lda,echo=FALSE}
+
+{plot(threshold, overall, lwd=3,type = "l",ylim = c(0,1),ylab = "Error rates", main = "Error rates for different thresholds")
+lines(threshold, true.pos, col="orange",lwd=3)
+lines(threshold, true.neg, col="blue",lwd=3)
+legend("topleft",legend=c("overall","true.pos","true.neg"),col=c("black","orange","blue"),lty=c(1,1,1),lwd=3)}
+max(overall)
+which.max(overall)
+
+
+mse.lda.s<-rep(NA,10)
+for(k in 1:10){
+    print(k)
+    lda.s<-lda(sent~log.h+bs.lon+bs.lat+built+bedrooms+bathrooms,data=train.sent[folds!=k,],family = "binomial")
+    pred<-predict(lda.s, train.sent[folds==k,],type = "response")
+    tab <- table(train.sent[folds==k,]$sent, pred$posterior[,2] >= 0.47)
+    mse.lda.s[k]<-(sum(diag(tab)) / sum(tab))
+}
+mean(mse.lda.s)
+```
+As the results illustrate, the best threshold is 0.47, which is very closed to default threshold 0.5. The best correct classification rate is 0.8084.
+
+For plotting the LDA linear decision boundary based on 2-dimension reduction, principle components analysis is firstly applied to reduce the covariate space into a two-dimension space. Then, combine the first two components and the sent to form a new data frame. LDA is performed based on this new data frame. To plot the linear boundary, the new data points are plotted in the plot. Furthermore, I sequentially choose 300 points on PC1 axis and 300 points in PC2 axis, which are 90000 combinations in total. Predicting every points by the LDA model and using the contour plot, it generates the linear boundary. To build the 95% point-wise confidence intervals for the decision boundary, since the lda does not provide the standard deviation directly, then we can use bootstrap to achieve the estimated standard deviation of prediction, and hence the 95% point-wise confidence intervals is calculated. By applying contour plot again, the confidence intervals are plotted. In this plot, black dot and red dots represent sent 0 and sent 1 in real observations. The blue and red plus signs are the center of each class. The black line is the linear boundary while the two red lines are the confidence intervals. We also generate the coefficients of LDA, which can be applied to calculate the probability of class membership with the help of priors. As it is computed based on a complicated formula, the LD1 is hard to be interpreted directly, but it can still provides us come insights of the linear boundary.
+```{r lda two dimension boundary}
+train.pca<-train.rfm.colab[,-c(1,2,3)]
+train.pca$year<-as.numeric(train.pca$year)
+train.pca$built<-as.numeric(train.pca$built)
+train.pca$reno<-as.numeric(train.pca$reno)
+train.pca$bedrooms<-as.numeric(train.pca$bedrooms)
+train.pca$bathrooms<-as.numeric(train.pca$bathrooms)
+train.pca$environ<-as.numeric(train.pca$environ)
+
+mod.pc<-prcomp(train.pca,center = TRUE,scale=TRUE)
+summary(mod.pc)
+pca_lda_boundary<-data.frame(
+  PC1 = mod.pc$x[, 1],
+  PC2 = mod.pc$x[, 2],
+  sent = train.mod$sent
+)
+lda.pca<-lda(sent~.,data = pca_lda_boundary)
+np <- 300
+nd.x <- seq(from = min(pca_lda_boundary$PC1), to = max(pca_lda_boundary$PC1), length.out = np)
+nd.y <- seq(from = min(pca_lda_boundary$PC2), to = max(pca_lda_boundary$PC2), length.out = np)
+nd <- expand.grid(PC1 = nd.x, PC2 = nd.y)
+
+B <- 100
+valid_pred <- matrix(NA, nrow=B,ncol=nrow(nd))
+for (i in 1:B) {
+  print(i)
+    dta <- pca_lda_boundary[sample(1:dim(pca_lda_boundary)[1], dim(pca_lda_boundary)[1], replace=TRUE),]
+    lda.se<-lda(sent~.,data = dta)
+    valid_pred[i,] <- as.numeric(predict(lda.se, newdata = nd)$class)
+}
+sd<-apply(valid_pred,2,sd)
+
+
+prd <- as.numeric(predict(lda.pca, newdata = nd,interval="confidence")$class)
+{plot(pca_lda_boundary[, 1:2], col = pca_lda_boundary$sent)
+points(lda.pca$means, pch = "+", cex = 3, col = c("blue", "red"))
+contour(x = nd.x, y = nd.y, z = matrix(prd+1.96*sd, nrow = np, ncol = np), 
+        levels = c(1, 2), add = TRUE, drawlabels = FALSE,col = "red")
+contour(x = nd.x, y = nd.y, z = matrix(prd-1.96*sd, nrow = np, ncol = np), 
+        levels = c(1, 2), add = TRUE, drawlabels = FALSE,col = "red")
+contour(x = nd.x, y = nd.y, z = matrix(prd, nrow = np, ncol = np), 
+        levels = c(1, 2), add = TRUE, drawlabels = FALSE,col = "black")}
+lda.pca
+```
+
+```{r lda sent submission,include=FALSE,eval=FALSE}
+best.lda.s<-lda(sent~log.h+bs(lon, knots = c(-3.5,-0.5))+bs(lat,knots=c(-3,-2))+built+bedrooms+reno,data=train.mod,family = "binomial")
+submit.lda.s<-predict(best.lda.s, newdata = test.mod)
+submit.lda.s<-ifelse(submit.lda.s$posterior[,2]>=0.47,1,0)
+test_submission.lda.s<-data.frame(id=test.mod$id,sent=submit.lda.s)
+write.csv(test_submission.lda.s,"C:/Users/123/Desktop/STAT3040/Final Project/submit_lda.s.csv",row.names = FALSE)
+```
+The kaggle score of this lda is 0.80280.
+According to the experience of predicting price before, tree based algorithms are assessed as well. The first tree based model is random forest. To begin with, the random forest model with the full data is constructed and use varImpPlot to check the significance of variables. After trials, deleting columns does not really help to improve. In additional, a for loop is set to choose the best mtry parameter, based on the result, the random forest has the highest accuracy when mtry is 10. Then the final model is set. The 10-fold cross validation correct classification rate is 0.8627.
+```{r randomforest, echo=FALSE}
+full.rf.sent<-randomForest(sent~.,data=train.rfm.colab[,-c(1,2)],ntree=50,mtry=5,importance=TRUE)
+varImpPlot(full.rf.sent,type="1")
+train.rf.sent<-train.rfm.colab[,-c(1,2)]
+
+
+set.seed(1)
+k<-10
+cv.rf.sent<-vector()
+se.rf.sent<-vector()
+for(j in 1:12){
+  print(j)
+  for(k in 1:10){
+    print(k)
+    fwd.model<-randomForest(sent~.,data=train.rf.sent[folds!=k,],ntree=50,mtry=j,importance=TRUE)
+    pred<-predict(fwd.model, train.rf.sent[folds==k,])
+    tab <- table(train.sent[folds==k,]$sent, pred)
+    msr[k]<-(sum(diag(tab)) / sum(tab))
+  }
+  cv.rf.sent<-c(cv.rf.sent,mean(msr))
+}
+
+mse.rf.sent<-rep(NA,10)
+for(k in 1:10){
+    print(k)
+    rf.sent<-randomForest(sent~.,data=train.rf.sent[folds!=k,],ntree=100,mtry=10,importance=TRUE)
+    pred<-predict(rf.sent, train.rf.sent[folds==k,])
+    tab <- table(train.sent[folds==k,]$sent, pred)
+    mse.rf.sent[k]<-(sum(diag(tab)) / sum(tab))
+}
+mean(mse.rf.sent)
+```
+
+```{r random forest sent submission, include=FALSE,eval=FALSE}
+best.rf.s<-randomForest(sent~.,data=train.rf.sent,ntree=500,mtry=10,importance=TRUE)
+submit.rf.s<-predict(best.rf.s, newdata = test.mod)
+test_submission.rf.s<-data.frame(id=test.mod$id,sent=submit.rf.s)
+write.csv(test_submission.rf.s,"C:/Users/123/Desktop/STAT3040/Final Project/submit_rf.s.csv",row.names = FALSE)
+```
+The submission of random forest on kaggle is 0.86000.
+Next tree based model is boosting. Similar to random forest, applying the full data and use summary function, we can see the relative influence of the covariates, reno and environ have the least relative influence. Through trials, deleting the most irrelevant variables does not really help. Therefore, it is moved to choose better parameter interaction depth, applying the for loop, the best performance is whne then interaction.depnth is 6, however, changing interaction.depth does not improve the accuracy too much. The 10-fold cross validation is 0.8630333.
+```{r boosting,echo=FALSE}
+set.seed(1)
+train.bt<-train.rfm.colab[,-c(1,2)]
+train.bt$sent<-as.character(train.bt$sent)
+boost<-gbm(sent~.,data=train.bt, distribution="bernoulli",n.trees=2000,interaction.depth=7)
+summary(boost)
+```
+
+```{r parameter sent boosting, eval=FALSE}
+
+int.dep.sent<-rep(NA,10)
+mse<-rep(NA,10)
+for (i in 1:10) {
+  print(i)
+  for(k in 1:10){
+    print(k)
+    boost.sent<-gbm(sent~.,data=train.bt[folds!=k,], distribution="bernoulli",n.trees=100,interaction.depth=j)
+    pred<-predict(boost.sent, train.bt[folds==k,],type="response")
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(train.bt[folds==k,]$sent, pred)
+    mse[k]<-(sum(diag(tab)) / sum(tab))
+  }
+int.dep.sent[i]<-mean(mse)
+}
+which.max(int.dep.sent)
+```
+
+```{r cv boosting sent}
+mse.bt.sent<-rep(NA,10)
+for(k in 1:10){
+    print(k)
+    boost.sent<-gbm(sent~.,data=train.bt[folds!=k,], distribution="bernoulli",n.trees=5000,interaction.depth=6)
+    pred<-predict(boost.sent, train.bt[folds==k,],type="response")
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(train.bt[folds==k,]$sent, pred)
+    mse.bt.sent[k]<-(sum(diag(tab)) / sum(tab))
+}
+mean(mse.bt.sent)
+```
+Threshold can also determine the performance of boosting, a for loop is set to test the 10-fold cross validation correct classification rate for the model with different probability threshold. After testing, the highest accuracy is when the threshold is 0.5. Hence the final boosting model is set. 
+```{r threshold boost,echo=FALSE,eval=FALSE}
+threshold<-seq(0.1,0.9,by=0.01)
+n.t<-length(threshold)
+overall<-rep(0,n.t)
+true.pos<-rep(0,n.t)
+true.neg<-rep(0,n.t)
+tp<-rep(0,k)
+tn<-rep(0,k)
+for (i in 1:n.t) {
+  for(k in 1:10){
+    boost.sent<-gbm(sent~.,data=train.bt[folds!=k,], distribution="bernoulli",n.trees=100,interaction.depth=j)
+    pred<-predict(boost.sent, train.bt[folds==k,],type="response")
+    pred<-ifelse(pred>threshold[i],1,0)
+    tab <- table(train.bt[folds==k,]$sent, pred)
+    msr[k]<-(sum(diag(tab)) / sum(tab))
+    tp[k]<-tab[1,1]/(tab[1,1]+tab[2,1])
+    tn[k]<-tab[2,2]/(tab[1,2]+tab[2,2])
+  }
+  overall[i]<-mean(msr)
+  true.pos[i]<-mean(tp)
+  true.neg[i]<-mean(tn)
+}
+{plot(threshold, overall, lwd=3,type = "l",ylim = c(0,1),ylab = "Error rates", main = "Error rates for different thresholds")
+lines(threshold, true.pos, col="orange",lwd=3)
+lines(threshold, true.neg, col="blue",lwd=3)
+  legend("topleft",legend=c("overall","true.pos","true.neg"),col=c("black","orange","blue"),lty=c(1,1,1),lwd=3)}
+max(overall)
+10+which.max(overall)
+```
+
+```{r boosting sent submission,eval=FALSE,include=FALSE}
+best.bt.s<-gbm(sent~.,data=train.bt,distribution="bernoulli",n.trees=5000,interaction.depth=6)
+submit.bt.s<-predict(best.bt.s, newdata = test.mod,type="response")
+submit.bt.s<-ifelse(submit.bt.s>0.5,1,0)
+test_submission.bt.s<-data.frame(id=test.mod$id,sent=submit.bt.s)
+write.csv(test_submission.bt.s,"C:/Users/123/Desktop/STAT3040/Final Project/submit_bt.s.csv",row.names = FALSE)
+```
+The submission of kaggle of boosting is 0.86140.
+
+```{r SVM,include=FALSE,eval=FALSE}
+svm.full<-tune(svm,sent~.,data = train.mod[folds==k,-c(1,2)],kernal="linear",ranges=list(c(0.001,0.01,0.1,1,5,10,100)))
+
+mse.svm.sent<-rep(NA,10)
+for(k in 1:10){
+    print(k)
+    svm.sent<-svm(sent~.,data=train.xb[folds!=k,], kernal="radial",cost=1,scale=FALSE)
+    pred<-predict(svm.sent,train.xb[folds==k,])
+    tab <- table(truth=train.xb[folds==k,]$sent, predict=pred)
+    mse.svm.sent[k]<-(sum(diag(tab)) / sum(tab))
+}
+mean(mse.svm.sent)
+```
+
+```{r BART, include=FALSE,eval=FALSE}
+set.seed (1)
+bartfit <- gbart(train.mod[folds!=k,-c(1,2,3)], train.mod[folds!=k,2],x.test = train.mod[folds==k,-c(1,2,3)])
+pred <- bartfit$yhat.test.mean
+mean(((train.mod[folds==k,]$price)-pred)^2)
+
+set.seed (1)
+bartfit.sent <- lbart(train.mod[folds!=k,-c(1,2,3)], as.numeric(train.mod[folds!=k,3])-1,x.test = train.mod[folds==k,-c(1,2,3)])
+pred <- bartfit.sent$prob.test.mean
+pred<-ifelse(pred>0.5,1,0)
+tab <- table(truth=train.mod[folds==k,]$sent, predict=pred)
+(sum(diag(tab)) / sum(tab))
+
+```
+
+According to the good perform of gbm, it is also motivated to apply the xgboost models again. However, there is a different setting, the scale_pos_weight, the ratio of positive cases to negative cases, is adjust to fit the imbalance of the distribution of sent (only 33% of the sent is 1 in training data). Using the same procedure to set the loops to find the combinations of max.depth and eta, which gives the highest correct classification rate. After the iterations, the combination of max.depth = 23 and eta = 0.1 provides the best outcome when the nrounds is 500. The best 10-fold cross validation correct classification rate is 0.8836333. The learning rate is as low as 0.1 and the cross-validation performance is desirable, which implies least overfitting issues in this model.
+```{r xgboost tune paramters,eval=FALSE}
+train.xb<-train.rfm.colab[,-c(1,2)]
+train.xb$sent<-as.numeric(train.xb$sent)-1
+train.xb$reno<-as.numeric(train.xb$reno)
+train.xb$year<-as.numeric(train.xb$year)
+train.xb$built<-as.numeric(train.xb$built)
+train.xb$bedrooms<-as.numeric(train.xb$bedrooms)
+train.xb$bathrooms<-as.numeric(train.xb$bathrooms)
+train.xb$environ<-as.numeric(train.xb$environ)
+
+year <- model.matrix(~year-1,train.xb)
+built <- model.matrix(~built-1,train.xb)
+train.xb<-cbind(train.xb[,-c(3,4)],year,built)
+
+xgb1<-xgboost(booster = "gbtree",data=as.matrix(train.xb[folds!=k,-1]),label=train.xb[folds!=k,]$sent,max.depth=20,nrounds = 300,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+mat <- xgb.importance (feature_names = colnames(train.xb[,-1]),model = xgb1)
+xgb.plot.importance (importance_matrix = mat[1:20]) 
+
+nrounds<-seq(from=210,to=300,by=10)
+best.nround<-rep(0,length(nrounds))
+for(i in 1:length(nrounds)){
+for(k in 1:10){
+    print(k)
+    xgboost.sent<-xgboost(data=as.matrix(train.xb[folds!=k,-1]),label=train.xb[folds!=k,]$sent,nrounds = nrounds[i],eval_metric = "error")
+                          ##,max.depth=20,nrounds = 100,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0), objective = "binary:logistic",eval_metric = "error",eta=0.3)
+    pred<-predict(xgboost.sent, as.matrix(train.xb[folds==k,-1]))
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=train.xb[folds==k,]$sent, predict=pred)
+    (sum(diag(tab)) / sum(tab))
+    msr[k]<-(sum(diag(tab)) / sum(tab))
+}
+best.nround[i]<-mean(msr)
+}
+tem.record<-c(tem.record,best.nround)
+
+ndepth<-seq(from=20,to=30,by=1)
+best.depth<-rep(0,length(ndepth))
+for(i in 1:length(ndepth)){
+for(k in 1:10){
+    print(k)
+    xgboost.sent<-xgboost(data=as.matrix(train.xb[folds!=k,-1]),label=train.xb[folds!=k,]$sent,nrounds = 500,max.depth=ndepth[i],eval_metric = "error",scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0), objective = "binary:logistic",eval_metric = "error",eta=0.1)
+                          ##,max.depth=20,nrounds = 100,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0), objective = "binary:logistic",eval_metric = "error",eta=0.3)
+    pred<-predict(xgboost.sent, as.matrix(train.xb[folds==k,-1]))
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=train.xb[folds==k,]$sent, predict=pred)
+    (sum(diag(tab)) / sum(tab))
+    msr[k]<-(sum(diag(tab)) / sum(tab))
+}
+best.depth[i]<-mean(msr)
+}
+max(best.depth)
+which.max(best.depth)
+```
+
+```{r xgb.cv tuning,eval=FALSE}
+set.seed(1)
+params <- list(booster = "gbtree", objective = "binary:logistic", eta=0.08, max_depth=21,subsample=1, min_child_weight=1, colsample_bytree=0.7,
+               eval_metric = "error",scale_pos_weight = 1.15,colsample_bylevel=0.7)
+xgbcv <- xgb.cv( params = params, data = as.matrix(train.xb[,-1]),label=train.xb$sent, nrounds = 1000, 
+nfold = 10, showsd = T, stratified = T, print_every_n = 20, maximize = F, seed=1)
+min(xgbcv$evaluation_log[,4])
+xgbcv$evaluation_log[which(test_error_mean==min(xgbcv$evaluation_log[,4])),]
+xgbcv$best_iteration
+```
+
+```{r xgboost cv,echo=FALSE}
+train.xb<-train.rfm.colab[,-c(1,2)]
+train.xb$sent<-as.numeric(train.xb$sent)-1
+train.xb$reno<-as.numeric(train.xb$reno)
+train.xb$year<-as.numeric(train.xb$year)
+train.xb$built<-as.numeric(train.xb$built)
+train.xb$bedrooms<-as.numeric(train.xb$bedrooms)
+train.xb$bathrooms<-as.numeric(train.xb$bathrooms)
+train.xb$environ<-as.numeric(train.xb$environ)
+
+train.xb<-train.rfm.colab[,-c(1,2)]
+train.xb$sent<-as.numeric(train.xb$sent)-1
+train.xb$reno<-as.numeric(train.xb$reno)
+year <- model.matrix(~year-1,train.xb)
+built <- model.matrix(~built-1,train.xb)
+train.xb<-cbind(train.xb[,-c(3,4)],year,built)
+
+mse.xgboost.sent<-rep(NA,10)
+for(k in 1:10){
+    print(k)
+    xgboost.sent<-xgboost(booster = "gbtree",data=as.matrix(train.xb[folds!=k,-1]),label=train.xb[folds!=k,]$sent,max.depth=21,nrounds = 897,scale_pos_weight =1.1,objective = "binary:logistic",eval_metric = "error",eta=0.08,colsample_bytree=0.7,colsample_bylevel=0.7)
+    pred<-predict(xgboost.sent, as.matrix(train.xb[folds==k,-1]))
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=train.xb[folds==k,]$sent, predict=pred)
+    (sum(diag(tab)) / sum(tab))
+    mse.xgboost.sent[k]<-(sum(diag(tab)) / sum(tab))
+}
+mean(mse.xgboost.sent)
+```
+
+```{r xgboost sent submission,include=FALSE,eval=FALSE}
+test.xb<-test.rfm.colab[,-c(1)]
+test.xb$reno<-as.numeric(test.xb$reno)
+test.xb$year<-as.numeric(test.xb$year)
+test.xb$built<-as.numeric(test.xb$built)
+
+year.test <- model.matrix(~year-1,test.xb)
+built.test <- model.matrix(~built-1,test.xb)
+test.xb<-cbind(test.xb[,-c(2,3)],year.test,built.test)
+
+best.xg.s<-xgboost(booster = "gbtree",data=as.matrix(train.xb[,-1]),label=train.xb$sent,max.depth=21,nrounds = 897,scale_pos_weight =1.1,objective = "binary:logistic",eval_metric = "error",eta=0.08,colsample_bytree=0.7,colsample_bylevel=0.7)
+submit.xg.s<-predict(best.xg.s, newdata = as.matrix(test.xb))
+submit.xg.s<-ifelse(submit.xg.s>0.5,1,0)
+test_submission.xg.s<-data.frame(id=test.mod$id,sent=submit.xg.s)
+write.csv(test_submission.xg.s,"C:/Users/123/Desktop/STAT3040/Final Project/submit_xg.s.csv",row.names = FALSE)
+```
+
+Regarding to predict the sentiment for the houses were sold six months after the sale price, two naive classifiers, glm, lda, random forest, boosting, xgboost are considered. Similar to the price part, these models are assessed and compared in terms of following dimensions, including 10-fold cross validation performance, uncertainty, and the kaggle predictive rank. To begin with, we look at the 10-fold cross validation performance of these models based on correct classification rate based on the format [CV+SE, CV, CV-SE]
+```{r 10-fold CV compare,echo=FALSE}
+cv.compare<-cbind(mse.glm.s,mse.lda.s,mse.rf.sent,mse.bt.sent,mse.xgboost.sent)
+cv.mean<-apply(cv.compare, 2, mean)
+cv.se<-apply(cv.compare, 2, sd)/sqrt(10)
+cv.compare<-cbind(cv.mean-cv.se,cv.mean,cv.mean+cv.se)
+colnames(cv.compare)<-c("cv_minus_se","cv","cv_plus_se")
+rownames(cv.compare)<-c("glm","lda","random forest","gbm","xgboost")
+ggplot(as.data.frame(cv.compare), aes(x=rownames(as.data.frame(cv.compare)), y=cv)) + geom_errorbar(aes(ymin=cv_minus_se, ymax=cv_plus_se), width=.1, 
+    position=position_dodge(0.05))+geom_line() + geom_point()+
+   scale_color_brewer(palette="Paired")+theme_minimal()+labs(title="[CV,CV-SE,CV+SE] plot for four models")
+```
+From this graph, we can see the xgboost has the highest correct classification rate which is higher than 0.88. Random forest and boosting have the similar accuracy, which are higher than 0.86, by contrast, glm and lda perform worst, which are around 0.81.Nevertheless, the 10-fold cross validation reflect that they are more accurate than the naive predictors, and hence they are helpful for predicting sent. This predictive power comparison is intuitively reasonable. Random forest and boosting outperforms than glm and lda due to the fact that their flexibility significant decreases the bias when using model to simulate the real-world problems. Compared with gbm, xgboost provides more variables to makes the modelling more suitable to predict the sentiment and control the overfitting, and hence showing better performance. 
+
+```{r coefficients compare,echo=FALSE}
+summary(best.glm.s)
+```
+The second dimension of the evaluation is uncertainty. Regarding to the first uncertainty of coefficients, there is only glm model provide useful coefficients. As black boxes models, random forest, gbm, and xgboosting do not provide information of coefficients. lda provided priors, means and other information, however, they do not play the same rule as coefficients of covariates. Therefore, we mainly look at the glm model. We can see glm model has high standard errors for several variables, especially lon, bedrooms and lat. It is possibly caused by including the splines of lat and lon, while the higher standard error of bedrooms10 and bedrooms11 may be caused by the extreme values.
+The second uncertainty is about the model bias. The same as what we did in the price part, this uncertainty is talked theoretically. As reflected on the models' performance on the 10-fold cross validation, more flexible model like random forest and boosting methods do predict the sent better than the simpler ones, since high flexibility aids model to address complicated issues in reality and hence reduce the bias. As we know, the error equals the sum of variance and bias, the reduce of bias of random forest and boosting methods is reflected on the increases of accuracy. Nevertheless, there are cost for the more flexible models. Higher flexibility reduce the interpretability of models, for example, in xgboost model, it is hard to describe what happened between each tree and how does the covariates affect the model. 
+The last uncertainty is about the uncertainty about predictions, which can be evaluated based on the standard error of the performance of 10-fold cross validation. From this graph, even though lda has a relatively smaller variance, lda, glm, random forest, and boosting have similar uncertainty of predictions. By contrast, the standard error of xgboost is appearantly smaller, the reason is that, in the process of fitting, the xgboost includes the eta hyperparameter, the learning rate. Learning rate eta can not only control the overfitting, it can also play a similar role as shrinkage, which can decrease the variance. Therefore, based on the same methodlogy of gradient boosting, xgboost has a samller variance than gbm.
+## Lastly, regarding to the predictive rank on kaggle, xgboost does perform best with the correct classification rate . By contrast, glm perform worst with the score of 0.80860. However, all models are better than naive classifiers, and therefore, they are helpful in terms of predicting contentment of the buyers after purchasing the houses.
+```{r improtance graph sent}
+best.xg.s<-xgboost(booster = "gbtree",data=as.matrix(train.xb[folds!=k,-1]),label=train.xb[folds!=k,]$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+mat <- xgb.importance (feature_names = colnames(train.xb[,-1]),model = best.xg.s)
+xgb.plot.importance (importance_matrix = mat[1:12]) 
+```
+
+```{r read results sent}
+difference.sent<-read.csv("difference.sent.csv",na.string="NA",header = TRUE,stringsAsFactors = FALSE)
+summary(difference.sent)
+t.test(difference.sent$environ,mu=0)
+t.test(difference.sent$reno,mu=0)
+t.test(difference.sent$cond,mu=0)
+t.test(difference.sent$built,mu=0)
+t.test(difference.sent$year,mu=0)
+t.test(difference.sent$bedrooms,mu=0)
+t.test(difference.sent$bathrooms,mu=0)
+t.test(difference.sent$log.block,mu=0)
+t.test(difference.sent$log.h,mu=0)
+t.test(difference.sent$lat,mu=0)
+t.test(difference.sent$lon,mu=0)
+t.test(difference.sent$X,mu=0)
+```
+Then, we can talk about the statistically and scientifically important factors based on the best performer xgboost. Use the xgb.plot.importance function, we can assess the relative scientifically important covariates. From the results, lon, lat, log.h and log.block are the four most scientific important covariates regarding to affect customers' sent. It means, the location of houses (including the longitude and latitude), the size of living space, and the lot size can significantly affect whether the buyers feel satisfied about the house. Compared to the price section, we can see the year is not longer influential, which means when does the house sold does not significantly affect buyers contentment. In terms of the statistically significant variables, since xgboost function does not provide related information, we also applied to bootstrap to assess whether excluding a variable will statistically affect the accuracy. The reults show that including reno, environ, built, bedrooms, and log.pool are not statisticall significant, including other covariates to model to imporve the accuracy are statsitically significant. Due to the calculation is demanding, therefore the boostrap only takes 20 times, so the reults may be different if we keep increasing the number of bootstraps. Additionally, we can also evaluate the statsically and scientifically significant covariates with the help of linear model, which provides clear information of statistical significance and scientific significance information of covariates.From the linear regression model, generally, all covariates are statistically significant whereas only several factor levels of year are not statistically significant. In terms of scitentific significance, log.h and built are relatively more scientifically significant.
+```{r lm sent assess}
+lm.full.s<-lm(as.numeric(sent)~.,data=train.rf.sent)
+summary(lm.full.s)
+```
+Since the best performer of predicting is still xgboost model, thus, limitations are already discussed in price section will be conclude again instead of repeatedly discussed. Firstly, xgboost act as a black box model, which provides limited information about how does the model fit and hence has less interpretability. Additionally, xgboost does not perform desirable in several kinds of data, including nature language, computer vision and image recognization. Thirdly, at the same time xgboost provides many hyperparameters to control the model, it is more time-consuming and calculation demanding than other boosting methods, like gbm and adaboost. For example, in previous bootstrap, it has to be performed on google colab as own laptop's cpu is unable to handle the calculations. Lastly, users always need be careful of the overfitting issues and keep adjusting the hyperparameters like eta, to control the overfitting.
+
+
+```{r statistical significance price, inlcude =FALSE,eval=FALSE}
+B <- 50
+f1<-sample(1:10,1)
+train.x<-train.xb.p[folds!=f1,]
+valid.x<-train.xb.p[folds==f1,]
+difference.reno <- rep(NA,B)
+difference.environ <- rep(NA,B)
+difference.cond<- rep(NA,B)
+difference.built <- rep(NA,B)
+difference.lat <- rep(NA,B)
+difference.lon <- rep(NA,B)
+difference.bedrooms <- rep(NA,B)
+difference.bathrooms <- rep(NA,B)
+difference.pool <- rep(NA,B)
+difference.block <- rep(NA,B)
+difference.h <- rep(NA,B)
+for (i in 1:B) {
+    print(i)
+    train.bootstrap <- train.x[sample(1:dim(train.x)[1], dim(train.x)[1], replace=TRUE),]
+    valid.bootstrap <- valid.x[sample(1:dim(valid.x)[1], dim(valid.x)[1], replace=TRUE),]
+    bt.xgboost<-xgboost(booster = "gbtree",data=as.matrix(train.bootstrap[,-c(1)]),label=train.bootstrap$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-1]))
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=valid.bootstrap$sent, predict=pred)
+    mse.benchmark<-(sum(diag(tab)) / sum(tab))
+    
+    bt.xgboost<-xgboost(booster = "gbtree",data=as.matrix(train.bootstrap[,-c(1,7)]),label=train.bootstrap$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,7)]))
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=valid.bootstrap$sent, predict=pred)
+    mse.delreno<-(sum(diag(tab)) / sum(tab))
+    
+      bt.xgboost<-xgboost(booster = "gbtree",data=as.matrix(train.bootstrap[,-c(1,10)]),label=train.bootstrap$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,10)]))
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=valid.bootstrap$sent, predict=pred)
+    mse.delenviron<-(sum(diag(tab)) / sum(tab))
+    
+     bt.xgboost<-xgboost(booster = "gbtree",data=as.matrix(train.bootstrap[,-c(1,2)]),label=train.bootstrap$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,2)]))
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=valid.bootstrap$sent, predict=pred)
+    mse.cond<-(sum(diag(tab)) / sum(tab))
+    
+     bt.xgboost<-xgboost(booster = "gbtree",data=as.matrix(train.bootstrap[,-c(1,3)]),label=train.bootstrap$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,3)]))
+        pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=valid.bootstrap$sent, predict=pred)
+    mse.year<-(sum(diag(tab)) / sum(tab))
+    
+      bt.xgboost<-xgboost(booster = "gbtree",data=as.matrix(train.bootstrap[,-c(1,4)]),label=train.bootstrap$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,4)]))
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=valid.bootstrap$sent, predict=pred)
+    mse.built<-(sum(diag(tab)) / sum(tab))
+
+    bt.xgboost<-xgboost(booster = "gbtree",data=as.matrix(train.bootstrap[,-c(1,5)]),label=train.bootstrap$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,5)]))
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=valid.bootstrap$sent, predict=pred)
+    mse.lat<-(sum(diag(tab)) / sum(tab))
+    
+     bt.xgboost<-xgboost(booster = "gbtree",data=as.matrix(train.bootstrap[,-c(1,6)]),label=train.bootstrap$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,6)]))
+      pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=valid.bootstrap$sent, predict=pred)
+    mse.lon<-(sum(diag(tab)) / sum(tab))
+    
+      bt.xgboost<-xgboost(booster = "gbtree",data=as.matrix(train.bootstrap[,-c(1,8)]),label=train.bootstrap$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,8)]))
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=valid.bootstrap$sent, predict=pred)
+    mse.bedrooms<-(sum(diag(tab)) / sum(tab))
+
+     bt.xgboost<-xgboost(booster = "gbtree",data=as.matrix(train.bootstrap[,-c(1,9)]),label=train.bootstrap$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,9)]))
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=valid.bootstrap$sent, predict=pred)
+    mse.bathrooms<-(sum(diag(tab)) / sum(tab))
+    
+    bt.xgboost<-xgboost(booster = "gbtree",data=as.matrix(train.bootstrap[,-c(1,11)]),label=train.bootstrap$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,11)]))
+    pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=valid.bootstrap$sent, predict=pred)
+    mse.pool<-(sum(diag(tab)) / sum(tab))
+    
+   bt.xgboost<-xgboost(booster = "gbtree",data=as.matrix(train.bootstrap[,-c(1,12)]),label=train.bootstrap$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,12)]))
+        pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=valid.bootstrap$sent, predict=pred)
+    mse.block<-(sum(diag(tab)) / sum(tab))
+    
+    bt.xgboost<-xgboost(booster = "gbtree",data=as.matrix(train.bootstrap[,-c(1,13)]),label=train.bootstrap$sent,max.depth=20,nrounds = 600,scale_pos_weight = sum(train.xb$sent == 1)/sum(train.xb$sent == 0),objective = "binary:logistic",eval_metric = "error",eta=0.2)
+    pred<-predict(bt.xgboost, as.matrix(valid.bootstrap[,-c(1,13)]))
+          pred<-ifelse(pred>0.5,1,0)
+    tab <- table(truth=valid.bootstrap$sent, predict=pred)
+    mse.h<-(sum(diag(tab)) / sum(tab))
+    
+    
+    difference.reno[i] <-  mse.benchmark - mse.delreno
+    difference.environ[i]<-mse.benchmark - mse.delenviron
+    difference.cond[i]<- mse.benchmark - mse.cond
+    difference.built[i] <-mse.benchmark - mse.built
+    difference.lat[i]<- mse.benchmark - mse.lat
+    difference.lon[i] <- mse.benchmark - mse.lon
+    difference.bedrooms[i] <-mse.benchmark - mse.bedrooms
+    difference.bathrooms[i] <- mse.benchmark - mse.bathrooms
+    difference.pool[i] <- mse.benchmark - mse.pool
+    difference.block[i] <- mse.benchmark - mse.block
+    difference.h [i]<- mse.benchmark - mse.h
+    difference.year[i] <- mse.benchmark - mse.year
+}
+
+```
+## Conclusion 
+In the above two modelling components, several models are built and compared for predicting price and sent of houses in Ken-Behrenia. In the price section, linear regression, ridge regression, the lasso, generalized linear regression, generalized additive model, random forest, boosting(gbm), and xgboost are constructed, and xgboost acheives the lowest MSE. They are well compared in terms of performance on 10-fold cross validation performance, uncertainty and predictive rank on kaggle. The xgboost reflects that log.h, year, lat, and lon are the most scitenfically important variables while reno and environ are the least scientifically influential, which is consistent with the results from linear regression. Since xgboost does not provide information about statistical significance, the bootstrap and t-tests are applied to test whether exclude a covariate will affect the accuracy. the results shows covariates bathrooms, cond, and log.pool are statistically insignificant while others are significant. At the mean time, the linear regression show different results: most variables are statistically significant except reno and environ. 
+In the sent part, glm, lda, random forest, boosting (gbm), and xgboost are applied, and xgboost is the most accurate model as well. These models are also assessed based on performance on 10-fold cross validation performance, uncertainty and predictive rank. The xgboost model for sent reflects that log.h, log.block, lat, and lon are the most scientifically influential covariates whereas reno and environ are least dominant again.The bootstrap results show that  reno, environ, built, bedrooms, and log.pool are not statistically significant while other do. The linear model shows a little bit different results regarding to the scientific importance, log.h and built are the most scientifically influential ones. Additionally, all the varaibles are statistically significant except some factor levels of year are insignificant. As a conclusion, this project successfully fulfill the task of predicting price and sent, at the same time, it also provides insightful discussion about the scientifically and statistically significant covariates that are affecting each prediction.
